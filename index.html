@@ -94,9 +94,9 @@
     <legend>METER</legend>
     <div class="row"><label for="anchor">grow from</label>
       <select id="anchor" style="width:120px">
-        <option value="center" selected>center ⇔</option>
+        <option value="center">center ⇔</option>
         <option value="left">left ⇒</option>
-        <option value="right">⇐ right</option>
+        <option value="right" selected>⇐ right</option>
       </select>
     </div>
     <div class="row"><label for="mode">react to</label>
@@ -106,14 +106,14 @@
       </select>
     </div>
     <div class="row"><label for="flip">low freq at top</label><input id="flip" type="checkbox"><span class="val"></span></div>
-    <div class="row"><label for="minw">idle width</label><input id="minw" type="range" min="0" max="60" step="1" value="10"><span class="val" id="minwV">10%</span></div>
-    <div class="row"><label for="gain">gain</label><input id="gain" type="range" min="0.3" max="4" step="0.05" value="1.15"><span class="val" id="gainV">1.15</span></div>
-    <div class="row"><label for="curve">contrast</label><input id="curve" type="range" min="0.4" max="3" step="0.05" value="1.3"><span class="val" id="curveV">1.30</span></div>
-    <div class="row"><label for="attack">attack</label><input id="attack" type="range" min="0" max="300" step="5" value="20"><span class="val" id="attackV">20ms</span></div>
-    <div class="row"><label for="release">release</label><input id="release" type="range" min="20" max="1500" step="10" value="260"><span class="val" id="releaseV">260ms</span></div>
+    <div class="row"><label for="minw">idle width</label><input id="minw" type="range" min="0" max="60" step="1" value="0"><span class="val" id="minwV">0%</span></div>
+    <div class="row"><label for="gain">gain</label><input id="gain" type="range" min="0.3" max="4" step="0.05" value="1.35"><span class="val" id="gainV">1.35</span></div>
+    <div class="row"><label for="curve">contrast</label><input id="curve" type="range" min="0.4" max="3" step="0.05" value="2.2"><span class="val" id="curveV">2.20</span></div>
+    <div class="row"><label for="attack">attack</label><input id="attack" type="range" min="0" max="300" step="5" value="0"><span class="val" id="attackV">0ms</span></div>
+    <div class="row"><label for="release">release</label><input id="release" type="range" min="20" max="1500" step="10" value="20"><span class="val" id="releaseV">20ms</span></div>
     <div class="row"><label for="autoGain">auto-level bands</label><input id="autoGain" type="checkbox" checked><span class="val"></span></div>
     <div class="row"><label for="peak">peak-hold ticks</label><input id="peak" type="checkbox" checked><span class="val"></span></div>
-    <div class="row"><label for="peakDecay">peak fall</label><input id="peakDecay" type="range" min="0.1" max="3" step="0.1" value="0.9"><span class="val" id="peakDecayV">0.9/s</span></div>
+    <div class="row"><label for="peakDecay">peak fall</label><input id="peakDecay" type="range" min="0.1" max="3" step="0.1" value="1.9"><span class="val" id="peakDecayV">1.9/s</span></div>
   </fieldset>
 
   <fieldset>
@@ -187,9 +187,9 @@ const nextTick = ()=>new Promise(r=>setTimeout(r,0));
 
 /* ---------------- settings bound to UI ---------------- */
 const S = {
-  anchor:'center', mode:'bands', flip:false,
-  minw:10, gain:1.15, curve:1.3, attack:20, release:260,
-  autoGain:true, peak:true, peakDecay:0.9,
+  anchor:'right', mode:'bands', flip:false,
+  minw:0, gain:1.35, curve:2.2, attack:0, release:20,
+  autoGain:true, peak:true, peakDecay:1.9,
   outW:1080, outH:1080, margin:0, fps:30,
   tint:'#ffffff', tintOn:true, prefix:'iamsiam_',
 };
