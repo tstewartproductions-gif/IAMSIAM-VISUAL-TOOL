@@ -80,6 +80,6 @@ image sequence and the alpha comes with it.
 - `iamsiam-vu.html` — the whole tool (logo embedded, works offline)
 - `index.html` — redirect stub so the GitHub Pages root URL still works
 - `assets/IAMSIAM_ASCII.png` — the source ASCII logo
-- `docs/BACKGROUND_TOOL_BRIEF.md` — spec for the companion track-info
-  background layer that sits under the VU sequence
-- `docs/track-info.example.json` — example track metadata payload
+- `docs/VU_TOOL_TECHNICAL_NOTES.md` — how the tool works and why it was built
+  that way; read this before extending it or building anything that has to
+  line up with its output
