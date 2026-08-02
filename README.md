@@ -10,7 +10,7 @@ Everything runs in the browser. No install, no server, no dependencies.
 
 ## Quick start
 
-1. Open `index.html` in Chrome or Edge (Firefox/Safari work too, but only
+1. Open `iamsiam-vu.html` in Chrome or Edge (Firefox/Safari work too, but only
    Chrome/Edge support exporting straight into a folder — others use ZIP).
 2. Drop an audio file anywhere on the window (or use **LOAD AUDIO**).
    mp3 / wav / flac / ogg / m4a all work.
@@ -52,7 +52,9 @@ detection is automatic, so any similar line-based artwork works.
 - PNG sequence, straight (non-premultiplied) alpha, named `iamsiam_00000.png`,
   `iamsiam_00001.png`, …
 - Set resolution, frame rate (24/25/30/50/60), export range, and filename
-  prefix in the **OUTPUT** panel.
+  prefix in the **OUTPUT** panel. The prefix auto-fills from the loaded
+  audio's filename (`my_track.wav` → `my_track_00000.png`) until you type
+  your own; clear the field to re-enable auto-naming.
 - **EXPORT → FOLDER** streams frames straight to disk (Chrome/Edge) — use this
   for long tracks. **EXPORT → ZIP** builds everything in memory first, best
   for shorter clips. **EXPORT CURRENT FRAME** saves a single PNG for a quick
@@ -75,5 +77,6 @@ image sequence and the alpha comes with it.
 
 ## Files
 
-- `index.html` — the whole tool (logo embedded, works offline)
+- `iamsiam-vu.html` — the whole tool (logo embedded, works offline)
+- `index.html` — redirect stub so the GitHub Pages root URL still works
 - `assets/IAMSIAM_ASCII.png` — the source ASCII logo

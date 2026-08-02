@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IAMSIAM · VU</title>
+<style>
+  :root{
+    --bg:#0b0b0e; --panel:#121217; --line:#26262e; --txt:#d8d8de; --dim:#7c7c88;
+    --acc:#3dff7c; --warn:#ffb03d; --mono:'SF Mono',ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{display:flex;background:var(--bg);color:var(--txt);font:13px/1.5 var(--mono);overflow:hidden}
+
+  /* ---------- control panel ---------- */
+  #panel{width:320px;min-width:320px;height:100%;overflow-y:auto;background:var(--panel);
+         border-right:1px solid var(--line);padding:18px 16px 40px}
+  #panel h1{font-size:15px;letter-spacing:.18em;color:#fff;margin-bottom:2px}
+  #panel .sub{color:var(--dim);font-size:11px;margin-bottom:18px}
+  fieldset{border:1px solid var(--line);border-radius:6px;padding:12px 12px 10px;margin-bottom:14px}
+  legend{padding:0 6px;color:var(--acc);font-size:11px;letter-spacing:.14em}
+  .row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .row label{flex:1;color:var(--txt)}
+  .row .val{color:var(--dim);min-width:44px;text-align:right;font-size:11px}
+  input[type=range]{flex:1.4;accent-color:var(--acc);height:20px}
+  select,input[type=number],input[type=text]{background:#0e0e13;color:var(--txt);
+    border:1px solid var(--line);border-radius:4px;padding:3px 6px;font:inherit;width:100%}
+  input[type=number]{width:70px}
+  input[type=color]{width:34px;height:24px;border:1px solid var(--line);border-radius:4px;
+    background:none;padding:0;cursor:pointer}
+  input[type=checkbox]{accent-color:var(--acc)}
+  .btn{display:inline-block;background:#1c1c24;color:var(--txt);border:1px solid var(--line);
+    border-radius:5px;padding:6px 10px;font:inherit;cursor:pointer;transition:.12s}
+  .btn:hover:not(:disabled){border-color:var(--acc);color:var(--acc)}
+  .btn:disabled{opacity:.35;cursor:not-allowed}
+  .btn.primary{background:var(--acc);color:#06130a;border-color:var(--acc);font-weight:700}
+  .btn.primary:hover:not(:disabled){filter:brightness(1.12);color:#06130a}
+  .btn.block{display:block;width:100%;text-align:center;margin-bottom:8px}
+  .filebtn input{display:none}
+  .hint{color:var(--dim);font-size:11px;margin-top:4px}
+  #progressWrap{height:8px;background:#0e0e13;border:1px solid var(--line);border-radius:4px;
+    overflow:hidden;margin:8px 0 6px;display:none}
+  #progressBar{height:100%;width:0%;background:var(--acc)}
+  #status{color:var(--warn);font-size:11px;min-height:16px;word-break:break-word}
+
+  /* ---------- stage ---------- */
+  #stage{flex:1;display:flex;flex-direction:column;height:100%}
+  #canvasWrap{flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:24px}
+  #canvasWrap.bg-checker{background:repeating-conic-gradient(#232329 0% 25%,#17171c 0% 50%) 0 0/26px 26px}
+  #canvasWrap.bg-black{background:#000}
+  #canvasWrap.bg-white{background:#fff}
+  #view{max-width:100%;max-height:100%;box-shadow:0 0 0 1px var(--line)}
+  #transport{display:flex;align-items:center;gap:12px;padding:10px 18px;
+    border-top:1px solid var(--line);background:var(--panel)}
+  #playBtn{width:44px}
+  #seek{flex:1;accent-color:var(--acc)}
+  #timeLabel{color:var(--dim);font-size:12px;min-width:150px;text-align:right;white-space:nowrap}
+  #dropHint{position:fixed;inset:0;display:none;align-items:center;justify-content:center;
+    background:rgba(10,10,14,.82);color:var(--acc);font-size:20px;letter-spacing:.1em;
+    border:2px dashed var(--acc);z-index:10;pointer-events:none}
+  body.dragging #dropHint{display:flex}
+</style>
+</head>
+<body>
+
+<aside id="panel">
+  <h1>IAMSIAM · VU</h1>
+  <div class="sub">ascii-bar vu visualizer → png sequence + alpha</div>
+
+  <fieldset>
+    <legend>AUDIO</legend>
+    <label class="btn block filebtn">LOAD AUDIO<input id="audioFile" type="file" accept="audio/*"></label>
+    <div class="hint" id="audioName">no audio loaded — drop a file anywhere</div>
+  </fieldset>
+
+  <fieldset>
+    <legend>LOGO</legend>
+    <div class="row">
+      <label class="btn filebtn" style="flex:1;text-align:center">REPLACE PNG<input id="logoFile" type="file" accept="image/png,image/webp"></label>
+      <button id="resetLogo" class="btn">RESET</button>
+    </div>
+    <div class="row">
+      <label for="tint">tint color</label>
+      <input id="tint" type="color" value="#ffffff">
+      <span style="width:6px"></span>
+      <input id="tintOn" type="checkbox" checked>
+      <span class="val">on</span>
+    </div>
+    <div class="hint" id="logoInfo">–</div>
+  </fieldset>
+
+  <fieldset>
+    <legend>METER</legend>
+    <div class="row"><label for="anchor">grow from</label>
+      <select id="anchor" style="width:120px">
+        <option value="center">center ⇔</option>
+        <option value="left">left ⇒</option>
+        <option value="right" selected>⇐ right</option>
+      </select>
+    </div>
+    <div class="row"><label for="mode">react to</label>
+      <select id="mode" style="width:120px">
+        <option value="bands" selected>freq bands/row</option>
+        <option value="loud">overall loudness</option>
+      </select>
+    </div>
+    <div class="row"><label for="flip">low freq at top</label><input id="flip" type="checkbox"><span class="val"></span></div>
+    <div class="row"><label for="minw">idle width</label><input id="minw" type="range" min="0" max="60" step="1" value="0"><span class="val" id="minwV">0%</span></div>
+    <div class="row"><label for="gain">gain</label><input id="gain" type="range" min="0.3" max="4" step="0.05" value="1.35"><span class="val" id="gainV">1.35</span></div>
+    <div class="row"><label for="curve">contrast</label><input id="curve" type="range" min="0.4" max="3" step="0.05" value="2.2"><span class="val" id="curveV">2.20</span></div>
+    <div class="row"><label for="attack">attack</label><input id="attack" type="range" min="0" max="300" step="5" value="0"><span class="val" id="attackV">0ms</span></div>
+    <div class="row"><label for="release">release</label><input id="release" type="range" min="20" max="1500" step="10" value="20"><span class="val" id="releaseV">20ms</span></div>
+    <div class="row"><label for="autoGain">auto-level bands</label><input id="autoGain" type="checkbox" checked><span class="val"></span></div>
+    <div class="row"><label for="peak">peak-hold ticks</label><input id="peak" type="checkbox" checked><span class="val"></span></div>
+    <div class="row"><label for="peakDecay">peak fall</label><input id="peakDecay" type="range" min="0.1" max="3" step="0.1" value="1.9"><span class="val" id="peakDecayV">1.9/s</span></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>OUTPUT</legend>
+    <div class="row"><label>size px</label>
+      <input id="outW" type="number" min="16" max="8192" step="1" value="1080"> ×
+      <input id="outH" type="number" min="16" max="8192" step="1" value="1080">
+    </div>
+    <div class="row"><label for="marginPct">margin</label><input id="marginPct" type="range" min="0" max="30" step="1" value="0"><span class="val" id="marginPctV">0%</span></div>
+    <div class="row"><label for="fps">frame rate</label>
+      <select id="fps" style="width:80px">
+        <option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option>
+      </select>
+    </div>
+    <div class="row"><label>range sec</label>
+      <input id="tStart" type="number" min="0" step="0.1" value="0"> →
+      <input id="tEnd" type="number" min="0" step="0.1" value="0">
+    </div>
+    <div class="row"><label for="prefix">file prefix</label><input id="prefix" type="text" value="iamsiam_" style="width:120px"></div>
+    <div class="hint" id="frameInfo">–</div>
+  </fieldset>
+
+  <fieldset>
+    <legend>EXPORT · PNG + ALPHA</legend>
+    <button id="exportFolder" class="btn primary block">EXPORT SEQUENCE → FOLDER</button>
+    <button id="exportZip" class="btn block">EXPORT SEQUENCE → ZIP</button>
+    <button id="exportFrame" class="btn block">EXPORT CURRENT FRAME</button>
+    <button id="cancelBtn" class="btn block" style="display:none;border-color:var(--warn);color:var(--warn)">CANCEL</button>
+    <div id="progressWrap"><div id="progressBar"></div></div>
+    <div id="status"></div>
+  </fieldset>
+
+  <fieldset>
+    <legend>PREVIEW BG (not exported)</legend>
+    <div class="row">
+      <select id="pbg" style="width:130px">
+        <option value="checker" selected>checkerboard</option>
+        <option value="black">black</option>
+        <option value="white">white</option>
+        <option value="custom">custom…</option>
+      </select>
+      <input id="pbgColor" type="color" value="#20304a">
+    </div>
+  </fieldset>
+</aside>
+
+<main id="stage">
+  <div id="canvasWrap" class="bg-checker"><canvas id="view" width="1080" height="1080"></canvas></div>
+  <div id="transport">
+    <button id="playBtn" class="btn" disabled>▶</button>
+    <input id="seek" type="range" min="0" max="0" step="0.01" value="0" disabled>
+    <span id="timeLabel">0:00.0 / 0:00.0</span>
+  </div>
+</main>
+
+<div id="dropHint">DROP AUDIO (or logo png)</div>
+
+<script>
+'use strict';
+/* =========================================================================
+   IAMSIAM VU — ascii-bar horizontal VU visualizer, transparent PNG sequence
+   Fully client-side. No dependencies.
+   ========================================================================= */
+
+const DEFAULT_LOGO = 'data:image/png;base64,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';
+
+const $ = id => document.getElementById(id);
+const clamp = (v,a,b)=>Math.min(b,Math.max(a,v));
+const blobOf = c => new Promise(r=>c.toBlob(r,'image/png'));
+const nextTick = ()=>new Promise(r=>setTimeout(r,0));
+
+/* ---------------- settings bound to UI ---------------- */
+const S = {
+  anchor:'right', mode:'bands', flip:false,
+  minw:0, gain:1.35, curve:2.2, attack:0, release:20,
+  autoGain:true, peak:true, peakDecay:1.9,
+  outW:1080, outH:1080, margin:0, fps:30,
+  tint:'#ffffff', tintOn:true, prefix:'iamsiam_',
+};
+
+/* ---------------- global state ---------------- */
+let logoCanvas=null;      // offscreen canvas holding the logo at native res
+let tintedLogo=null;      // tinted copy used for drawing
+let barData=null;         // {bars:[{row,y,h,x0,x1}], rows, w, h}
+let audioBuf=null;        // decoded AudioBuffer
+let audioFileName='';     // name of the loaded audio file
+let monoData=null;        // Float32Array mono mix
+let analysis=null;        // {frames, rows, rawDb, rawDbAll, bandMax, globalMax, maxAll}
+let env=null, envAll=null;// smoothed 0..1 levels per frame
+let framesTotal=0;
+let previewPeaks=null;
+let exporting=false, cancelFlag=false;
+
+/* playback */
+let actx=null, srcNode=null, playing=false, playStartCtx=0, playOffset=0, curTime=0;
+
+const view = $('view');
+const vctx = view.getContext('2d');
+
+/* =========================================================================
+   LOGO — load + bar extraction
+   ========================================================================= */
+function loadImage(src){
+  return new Promise((res,rej)=>{
+    const im=new Image();
+    im.onload=()=>res(im);
+    im.onerror=()=>rej(new Error('could not load image'));
+    im.src=src;
+  });
+}
+
+function extractBars(img){
+  const W=img.naturalWidth, H=img.naturalHeight;
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const g=c.getContext('2d',{willReadFrequently:true});
+  g.drawImage(img,0,0);
+  const d=g.getImageData(0,0,W,H).data;
+  const TH=16;                                // alpha threshold
+  const GAP=Math.max(2,Math.round(W*0.006));  // merge segments closer than this
+  const MINW=Math.max(2,Math.round(W*0.003)); // ignore specks narrower than this
+
+  const rowHas=new Uint8Array(H);
+  for(let y=0;y<H;y++){
+    const o=y*W*4;
+    for(let x=0;x<W;x++){ if(d[o+x*4+3]>TH){rowHas[y]=1;break;} }
+  }
+  const strips=[];
+  for(let y=0;y<H;){
+    if(rowHas[y]){ const y0=y; while(y<H&&rowHas[y])y++; strips.push([y0,y]); }
+    else y++;
+  }
+  const bars=[];
+  strips.forEach((st,row)=>{
+    const [y0,y1]=st;
+    const colMax=new Uint8Array(W);
+    for(let x=0;x<W;x++){
+      let m=0;
+      for(let yy=y0;yy<y1;yy++){ const a=d[(yy*W+x)*4+3]; if(a>m)m=a; }
+      colMax[x]=m;
+    }
+    const segs=[];
+    for(let x=0;x<W;){
+      if(colMax[x]>TH){ const x0=x; while(x<W&&colMax[x]>TH)x++; segs.push([x0,x]); }
+      else x++;
+    }
+    const merged=[];
+    for(const s of segs){
+      if(merged.length && s[0]-merged[merged.length-1][1]<=GAP) merged[merged.length-1][1]=s[1];
+      else merged.push([...s]);
+    }
+    for(const [x0,x1] of merged){
+      if(x1-x0>=MINW) bars.push({row, y:y0, h:y1-y0, x0, x1});
+    }
+  });
+  return {bars, rows:strips.length, w:W, h:H, canvas:c};
+}
+
+function makeTinted(){
+  if(!logoCanvas) return;
+  tintedLogo=document.createElement('canvas');
+  tintedLogo.width=logoCanvas.width; tintedLogo.height=logoCanvas.height;
+  const g=tintedLogo.getContext('2d');
+  g.drawImage(logoCanvas,0,0);
+  if(S.tintOn){
+    g.globalCompositeOperation='source-in';
+    g.fillStyle=S.tint;
+    g.fillRect(0,0,tintedLogo.width,tintedLogo.height);
+  }
+}
+
+async function setLogo(src){
+  const img=await loadImage(src);
+  const data=extractBars(img);
+  if(!data.bars.length) throw new Error('no bars detected — logo needs an alpha channel');
+  barData=data; logoCanvas=data.canvas;
+  makeTinted();
+  previewPeaks=new Float32Array(barData.bars.length);
+  $('logoInfo').textContent=`${data.bars.length} bars · ${data.rows} rows · ${data.w}×${data.h}px`;
+  if(monoData) await analyze();          // band count follows row count
+  renderCurrent();
+}
+
+/* =========================================================================
+   AUDIO — decode + deterministic offline FFT analysis
+   ========================================================================= */
+async function loadAudio(file){
+  stopPlayback();
+  setStatus('decoding audio…');
+  if(!actx) actx=new (window.AudioContext||window.webkitAudioContext)();
+  const buf=await file.arrayBuffer();
+  audioBuf=await actx.decodeAudioData(buf);
+  audioFileName=file.name;
+  if(!prefixCustom){
+    const base=file.name.replace(/\.[^.]+$/,'').replace(/[^\w.-]/g,'').slice(0,40);
+    if(base){ S.prefix=base+'_'; $('prefix').value=S.prefix; }
+  }
+  const n=audioBuf.length, ch=audioBuf.numberOfChannels;
+  monoData=new Float32Array(n);
+  for(let c=0;c<ch;c++){
+    const cd=audioBuf.getChannelData(c);
+    for(let i=0;i<n;i++) monoData[i]+=cd[i]/ch;
+  }
+  $('audioName').textContent=`${file.name} · ${audioBuf.duration.toFixed(1)}s · ${audioBuf.sampleRate}Hz`;
+  $('tEnd').value=audioBuf.duration.toFixed(2);
+  $('seek').max=audioBuf.duration; $('seek').disabled=false;
+  $('playBtn').disabled=false;
+  curTime=0; playOffset=0; $('seek').value=0;
+  await analyze();
+}
+
+/* in-place radix-2 FFT */
+function fft(re,im){
+  const n=re.length;
+  for(let i=1,j=0;i<n;i++){
+    let bit=n>>1;
+    for(;j&bit;bit>>=1) j^=bit;
+    j|=bit;
+    if(i<j){ let t=re[i];re[i]=re[j];re[j]=t; t=im[i];im[i]=im[j];im[j]=t; }
+  }
+  for(let len=2;len<=n;len<<=1){
+    const half=len>>1, ang=-2*Math.PI/len;
+    const wr=Math.cos(ang), wi=Math.sin(ang);
+    for(let i=0;i<n;i+=len){
+      let cr=1, ci=0;
+      for(let j2=0;j2<half;j2++){
+        const a=i+j2, b=a+half;
+        const tr=re[b]*cr-im[b]*ci, ti=re[b]*ci+im[b]*cr;
+        re[b]=re[a]-tr; im[b]=im[a]-ti;
+        re[a]+=tr; im[a]+=ti;
+        const ncr=cr*wr-ci*wi; ci=cr*wi+ci*wr; cr=ncr;
+      }
+    }
+  }
+}
+
+/* per-frame band levels for the whole track — deterministic, so preview
+   playback and the exported sequence always match sample-for-sample */
+async function analyze(){
+  if(!monoData||!barData) return;
+  const sr=audioBuf.sampleRate, dur=audioBuf.duration, fps=S.fps;
+  const frames=Math.max(1,Math.ceil(dur*fps));
+  const rows=barData.rows;
+  const N=4096, half=N>>1;
+  const hann=new Float32Array(N);
+  for(let i=0;i<N;i++) hann[i]=0.5-0.5*Math.cos(2*Math.PI*i/(N-1));
+
+  const fmin=35, fmax=Math.min(16000,sr*0.45);
+  const edges=new Float32Array(rows+1);
+  for(let b=0;b<=rows;b++) edges[b]=fmin*Math.pow(fmax/fmin,b/rows);
+  const binLo=new Int32Array(rows), binHi=new Int32Array(rows);
+  for(let b=0;b<rows;b++){
+    binLo[b]=clamp(Math.floor(edges[b]*N/sr),1,half-1);
+    binHi[b]=clamp(Math.ceil(edges[b+1]*N/sr),binLo[b]+1,half);
+  }
+  const allLo=clamp(Math.floor(fmin*N/sr),1,half-1);
+  const allHi=clamp(Math.ceil(fmax*N/sr),allLo+1,half);
+
+  const rawDb=new Float32Array(frames*rows);
+  const rawDbAll=new Float32Array(frames);
+  const re=new Float32Array(N), im=new Float32Array(N);
+
+  setStatus('analyzing… 0%'); showProgress(true);
+  for(let f=0;f<frames;f++){
+    const centre=Math.round((f/fps)*sr);
+    const start=centre-half;
+    for(let i=0;i<N;i++){
+      const s=start+i;
+      re[i]=(s>=0&&s<monoData.length)?monoData[s]*hann[i]:0;
+      im[i]=0;
+    }
+    fft(re,im);
+    for(let b=0;b<rows;b++){
+      let p=0;
+      for(let k=binLo[b];k<binHi[b];k++) p+=re[k]*re[k]+im[k]*im[k];
+      p/=(binHi[b]-binLo[b]);
+      rawDb[f*rows+b]=10*Math.log10(p+1e-20);
+    }
+    let pa=0;
+    for(let k=allLo;k<allHi;k++) pa+=re[k]*re[k]+im[k]*im[k];
+    rawDbAll[f]=10*Math.log10(pa/(allHi-allLo)+1e-20);
+
+    if((f&63)===0){
+      const pct=Math.round(f/frames*100);
+      setStatus(`analyzing… ${pct}%`); setProgress(pct);
+      await nextTick();
+      if(cancelFlag){ cancelFlag=false; setStatus('analysis cancelled'); showProgress(false); return; }
+    }
+  }
+
+  const bandMax=new Float32Array(rows).fill(-200);
+  let globalMax=-200, maxAll=-200;
+  for(let f=0;f<frames;f++){
+    for(let b=0;b<rows;b++){
+      const v=rawDb[f*rows+b];
+      if(v>bandMax[b]) bandMax[b]=v;
+      if(v>globalMax) globalMax=v;
+    }
+    if(rawDbAll[f]>maxAll) maxAll=rawDbAll[f];
+  }
+
+  analysis={frames,rows,rawDb,rawDbAll,bandMax,globalMax,maxAll};
+  framesTotal=frames;
+  buildEnv();
+  showProgress(false);
+  setStatus('');
+  updateFrameInfo();
+}
+
+/* normalization + gain + contrast + attack/release smoothing.
+   Cheap — reruns instantly whenever a meter slider moves. */
+function buildEnv(){
+  if(!analysis) return;
+  const {frames,rows,rawDb,rawDbAll,bandMax,globalMax,maxAll}=analysis;
+  const RANGE=48;
+  const dt=1/S.fps;
+  const aC=S.attack<=0?1:1-Math.exp(-dt*1000/S.attack);
+  const rC=S.release<=0?1:1-Math.exp(-dt*1000/S.release);
+
+  env=new Float32Array(frames*rows);
+  for(let b=0;b<rows;b++){
+    const ref=S.autoGain?Math.max(bandMax[b],globalMax-30):globalMax;
+    let s=0;
+    for(let f=0;f<frames;f++){
+      let v=clamp((rawDb[f*rows+b]-(ref-RANGE))/RANGE,0,1);
+      v=clamp(v*S.gain,0,1);
+      v=Math.pow(v,S.curve);
+      s+= (v>s?aC:rC)*(v-s);
+      env[f*rows+b]=s;
+    }
+  }
+  envAll=new Float32Array(frames);
+  {
+    let s=0;
+    for(let f=0;f<frames;f++){
+      let v=clamp((rawDbAll[f]-(maxAll-RANGE))/RANGE,0,1);
+      v=clamp(v*S.gain,0,1);
+      v=Math.pow(v,S.curve);
+      s+= (v>s?aC:rC)*(v-s);
+      envAll[f]=s;
+    }
+  }
+}
+
+/* =========================================================================
+   RENDER
+   ========================================================================= */
+function levelFor(bar,frame){
+  if(!env||frame<0||frame>=framesTotal) return 0;
+  if(S.mode==='loud') return envAll[frame];
+  const b=S.flip?bar.row:(barData.rows-1-bar.row);
+  return env[frame*barData.rows+b];
+}
+
+function renderFrame(g,W,H,frame,peaks){
+  g.clearRect(0,0,W,H);
+  if(!barData) return;
+  const m=S.margin/100;
+  const sc=Math.min(W*(1-2*m)/barData.w, H*(1-2*m)/barData.h);
+  const ox=(W-barData.w*sc)/2, oy=(H-barData.h*sc)/2;
+  const minF=S.minw/100;
+  const dec=S.peakDecay/S.fps;
+  const mw=Math.max(3,barData.h*0.006);   // peak tick width in logo px
+
+  g.fillStyle=S.tintOn?S.tint:'#ffffff';
+  for(let i=0;i<barData.bars.length;i++){
+    const bar=barData.bars[i];
+    const lvl=levelFor(bar,frame);
+    const frac=clamp(minF+lvl*(1-minF),0,1);
+    const bw=bar.x1-bar.x0;
+    const vw=Math.max(1,bw*frac);
+    let sx;
+    if(S.anchor==='left') sx=bar.x0;
+    else if(S.anchor==='right') sx=bar.x1-vw;
+    else sx=bar.x0+(bw-vw)/2;
+    g.drawImage(tintedLogo, sx,bar.y,vw,bar.h, ox+sx*sc, oy+bar.y*sc, vw*sc, bar.h*sc);
+
+    if(S.peak&&peaks){
+      peaks[i]=Math.max(frac,(peaks[i]||0)-dec);
+      const pf=peaks[i];
+      if(pf>frac+0.02){
+        const yv=oy+bar.y*sc, hv=bar.h*sc, wv=mw*sc;
+        if(S.anchor==='left'){
+          const px=clamp(bar.x0+pf*bw,bar.x0,bar.x1-mw);
+          g.fillRect(ox+px*sc,yv,wv,hv);
+        }else if(S.anchor==='right'){
+          const px=clamp(bar.x1-pf*bw,bar.x0,bar.x1-mw);
+          g.fillRect(ox+px*sc,yv,wv,hv);
+        }else{
+          const cx=bar.x0+bw/2, hf=pf*bw/2;
+          const l=clamp(cx-hf,bar.x0,bar.x1-mw);
+          const r=clamp(cx+hf-mw,bar.x0,bar.x1-mw);
+          g.fillRect(ox+l*sc,yv,wv,hv);
+          g.fillRect(ox+r*sc,yv,wv,hv);
+        }
+      }
+    }
+  }
+}
+
+function currentFrame(){
+  return clamp(Math.floor(curTime*S.fps),0,Math.max(0,framesTotal-1));
+}
+function renderCurrent(){
+  renderFrame(vctx,view.width,view.height,currentFrame(),previewPeaks);
+}
+
+/* preview loop */
+function tick(){
+  if(playing&&actx){
+    curTime=playOffset+(actx.currentTime-playStartCtx);
+    if(curTime>=audioBuf.duration){ stopPlayback(); curTime=audioBuf.duration; }
+    $('seek').value=curTime;
+  }
+  if(!exporting) renderCurrent();
+  updateTimeLabel();
+  requestAnimationFrame(tick);
+}
+
+function updateTimeLabel(){
+  const f=t=>{const m=Math.floor(t/60),s=(t-m*60).toFixed(1).padStart(4,'0');return `${m}:${s}`;};
+  const dur=audioBuf?audioBuf.duration:0;
+  $('timeLabel').textContent=`${f(curTime)} / ${f(dur)} · f${currentFrame()}`;
+}
+
+/* =========================================================================
+   PLAYBACK
+   ========================================================================= */
+function startPlayback(){
+  if(!audioBuf) return;
+  actx.resume();
+  srcNode=actx.createBufferSource();
+  srcNode.buffer=audioBuf;
+  srcNode.connect(actx.destination);
+  if(curTime>=audioBuf.duration-0.01) curTime=0;
+  playOffset=curTime;
+  playStartCtx=actx.currentTime;
+  srcNode.start(0,curTime);
+  srcNode.onended=()=>{ if(playing) stopPlayback(); };
+  playing=true;
+  $('playBtn').textContent='❚❚';
+}
+function stopPlayback(){
+  if(srcNode){ try{srcNode.onended=null;srcNode.stop();}catch(e){} srcNode=null; }
+  playing=false;
+  $('playBtn').textContent='▶';
+}
+
+/* =========================================================================
+   EXPORT — png sequence with alpha (folder via File System Access, or zip)
+   ========================================================================= */
+function padF(n){ return String(n).padStart(5,'0'); }
+
+function infoText(f0,f1){
+  const total=f1-f0;
+  return [
+    'IAMSIAM VU — png sequence export',
+    `audio file: ${audioFileName||'(none)'}`,
+    `frames: ${total} (${padF(0)}..${padF(total-1)})`,
+    `fps: ${S.fps}`,
+    `size: ${S.outW}x${S.outH} (straight alpha)`,
+    `audio range: ${(f0/S.fps).toFixed(3)}s -> ${(f1/S.fps).toFixed(3)}s`,
+    '',
+    'ProRes 4444 with alpha:',
+    `  ffmpeg -framerate ${S.fps} -i ${S.prefix}%05d.png -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le ${S.prefix}alpha.mov`,
+    'VP9 webm with alpha:',
+    `  ffmpeg -framerate ${S.fps} -i ${S.prefix}%05d.png -c:v libvpx-vp9 -pix_fmt yuva420p -b:v 0 -crf 24 ${S.prefix}alpha.webm`,
+    ''
+  ].join('\n');
+}
+
+function exportRange(){
+  const f0=clamp(Math.floor(parseFloat($('tStart').value||0)*S.fps),0,framesTotal);
+  const f1=clamp(Math.ceil(parseFloat($('tEnd').value||0)*S.fps),0,framesTotal);
+  return [f0,f1];
+}
+
+async function runExport(writeFrame, done){
+  const [f0,f1]=exportRange();
+  if(!env||f1<=f0){ setStatus('load audio + set a valid range first'); return; }
+  exporting=true; cancelFlag=false;
+  stopPlayback();
+  $('cancelBtn').style.display='block';
+  showProgress(true);
+  const peaks=new Float32Array(barData.bars.length);
+  const off=document.createElement('canvas');
+  off.width=S.outW; off.height=S.outH;
+  const g=off.getContext('2d');
+  try{
+    for(let f=f0;f<f1;f++){
+      renderFrame(g,off.width,off.height,f,peaks);
+      /* mirror to preview so you can watch it render */
+      vctx.clearRect(0,0,view.width,view.height);
+      vctx.drawImage(off,0,0,view.width,view.height);
+      const blob=await blobOf(off);
+      await writeFrame(f-f0,blob);
+      const pct=Math.round((f-f0+1)/(f1-f0)*100);
+      setProgress(pct); setStatus(`exporting… ${f-f0+1}/${f1-f0} (${pct}%)`);
+      if(cancelFlag) break;
+      if((f&7)===0) await nextTick();
+    }
+    if(cancelFlag) setStatus('export cancelled');
+    else { await done(f1-f0); setStatus(`done — ${f1-f0} frames exported`); }
+  }catch(err){
+    setStatus('export failed: '+err.message);
+  }finally{
+    exporting=false; cancelFlag=false;
+    $('cancelBtn').style.display='none';
+    showProgress(false);
+  }
+}
+
+async function exportToFolder(){
+  if(!window.showDirectoryPicker){ setStatus('folder export needs Chrome/Edge — use ZIP instead'); return; }
+  let dir;
+  try{ dir=await window.showDirectoryPicker({mode:'readwrite'}); }
+  catch(e){ return; }
+  const sub=await dir.getDirectoryHandle(`${S.prefix}pngseq`,{create:true});
+  const write=async(name,data)=>{
+    const fh=await sub.getFileHandle(name,{create:true});
+    const w=await fh.createWritable();
+    await w.write(data); await w.close();
+  };
+  await runExport(
+    async(i,blob)=>write(`${S.prefix}${padF(i)}.png`,blob),
+    async(total)=>{ const [f0,f1]=exportRange(); await write(`${S.prefix}info.txt`,new Blob([infoText(f0,f1)])); }
+  );
+}
+
+async function exportToZip(){
+  const [f0,f1]=exportRange();
+  const total=f1-f0;
+  if(total>3000 && !confirm(`${total} frames will be held in memory before the zip downloads. For long clips "EXPORT → FOLDER" is safer. Continue?`)) return;
+  if(total>65000){ setStatus('too many frames for zip — use folder export'); return; }
+  const entries=[];
+  await runExport(
+    async(i,blob)=>{ entries.push({name:`${S.prefix}${padF(i)}.png`, data:new Uint8Array(await blob.arrayBuffer())}); },
+    async()=>{
+      entries.push({name:`${S.prefix}info.txt`, data:new TextEncoder().encode(infoText(f0,f1))});
+      setStatus('building zip…'); await nextTick();
+      const blob=buildZip(entries);
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=`${S.prefix}pngseq.zip`;
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+    }
+  );
+}
+
+async function exportSingleFrame(){
+  const off=document.createElement('canvas');
+  off.width=S.outW; off.height=S.outH;
+  renderFrame(off.getContext('2d'),off.width,off.height,currentFrame(),null);
+  const blob=await blobOf(off);
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`${S.prefix}frame_${padF(currentFrame())}.png`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+  setStatus('frame saved');
+}
+
+/* ---- minimal zip writer (store method — PNGs are already compressed) ---- */
+const CRC_T=(()=>{const t=new Uint32Array(256);
+  for(let i=0;i<256;i++){let c=i;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[i]=c;}
+  return t;})();
+function crc32(u8){let c=0xFFFFFFFF;for(let i=0;i<u8.length;i++)c=CRC_T[(c^u8[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0;}
+
+function buildZip(entries){
+  const enc=new TextEncoder();
+  const parts=[], central=[];
+  let offset=0;
+  const now=new Date();
+  const dosTime=((now.getHours()<<11)|(now.getMinutes()<<5)|(now.getSeconds()>>1))&0xFFFF;
+  const dosDate=(((now.getFullYear()-1980)<<9)|((now.getMonth()+1)<<5)|now.getDate())&0xFFFF;
+  for(const e of entries){
+    const name=enc.encode(e.name);
+    const crc=crc32(e.data), n=e.data.length;
+    const lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true); lh.setUint16(4,20,true);
+    lh.setUint16(10,dosTime,true); lh.setUint16(12,dosDate,true);
+    lh.setUint32(14,crc,true); lh.setUint32(18,n,true); lh.setUint32(22,n,true);
+    lh.setUint16(26,name.length,true);
+    parts.push(new Uint8Array(lh.buffer),name,e.data);
+    const ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true); ch.setUint16(4,20,true); ch.setUint16(6,20,true);
+    ch.setUint16(12,dosTime,true); ch.setUint16(14,dosDate,true);
+    ch.setUint32(16,crc,true); ch.setUint32(20,n,true); ch.setUint32(24,n,true);
+    ch.setUint16(28,name.length,true); ch.setUint32(42,offset,true);
+    central.push(new Uint8Array(ch.buffer),name);
+    offset+=30+name.length+n;
+  }
+  let cSize=0; for(const p of central) cSize+=p.length;
+  const end=new DataView(new ArrayBuffer(22));
+  end.setUint32(0,0x06054b50,true);
+  end.setUint16(8,entries.length,true); end.setUint16(10,entries.length,true);
+  end.setUint32(12,cSize,true); end.setUint32(16,offset,true);
+  return new Blob([...parts,...central,new Uint8Array(end.buffer)],{type:'application/zip'});
+}
+
+/* =========================================================================
+   UI wiring
+   ========================================================================= */
+function setStatus(t){ $('status').textContent=t; }
+function showProgress(on){ $('progressWrap').style.display=on?'block':'none'; if(!on)setProgress(0); }
+function setProgress(pct){ $('progressBar').style.width=pct+'%'; }
+function updateFrameInfo(){
+  $('frameInfo').textContent=analysis?`${framesTotal} frames @ ${S.fps}fps ready`:'–';
+}
+
+function bindRange(id,key,fmt,after){
+  const el=$(id), lbl=$(id+'V');
+  el.addEventListener('input',()=>{
+    S[key]=parseFloat(el.value);
+    if(lbl)lbl.textContent=fmt(S[key]);
+    if(after)after();
+  });
+  if(lbl)lbl.textContent=fmt(S[key]);
+}
+
+bindRange('minw','minw',v=>v+'%');
+bindRange('gain','gain',v=>v.toFixed(2),buildEnv);
+bindRange('curve','curve',v=>v.toFixed(2),buildEnv);
+bindRange('attack','attack',v=>v+'ms',buildEnv);
+bindRange('release','release',v=>v+'ms',buildEnv);
+bindRange('peakDecay','peakDecay',v=>v.toFixed(1)+'/s');
+bindRange('marginPct','margin',v=>v+'%');
+
+$('anchor').addEventListener('change',e=>S.anchor=e.target.value);
+$('mode').addEventListener('change',e=>S.mode=e.target.value);
+$('flip').addEventListener('change',e=>S.flip=e.target.checked);
+$('autoGain').addEventListener('change',e=>{S.autoGain=e.target.checked;buildEnv();});
+$('peak').addEventListener('change',e=>S.peak=e.target.checked);
+$('tint').addEventListener('input',e=>{S.tint=e.target.value;makeTinted();});
+$('tintOn').addEventListener('change',e=>{S.tintOn=e.target.checked;makeTinted();});
+let prefixCustom=false;   // once the user types a prefix, stop auto-filling from the audio name
+$('prefix').addEventListener('input',e=>{
+  prefixCustom=e.target.value.length>0;
+  S.prefix=e.target.value.replace(/[^\w.-]/g,'')||'iamsiam_';
+});
+
+function resizeCanvas(){
+  S.outW=clamp(parseInt($('outW').value)||1080,16,8192);
+  S.outH=clamp(parseInt($('outH').value)||1080,16,8192);
+  view.width=S.outW; view.height=S.outH;
+  renderCurrent();
+}
+$('outW').addEventListener('change',resizeCanvas);
+$('outH').addEventListener('change',resizeCanvas);
+
+$('fps').addEventListener('change',async e=>{
+  S.fps=parseInt(e.target.value);
+  if(monoData) await analyze();
+});
+
+$('audioFile').addEventListener('change',e=>{
+  if(e.target.files[0]) loadAudio(e.target.files[0]).catch(err=>setStatus('audio load failed: '+err.message));
+});
+$('logoFile').addEventListener('change',e=>{
+  const f=e.target.files[0];
+  if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>setLogo(rd.result).catch(err=>setStatus(err.message));
+  rd.readAsDataURL(f);
+});
+$('resetLogo').addEventListener('click',()=>setLogo(DEFAULT_LOGO).catch(err=>setStatus(err.message)));
+
+$('playBtn').addEventListener('click',()=>{ playing?stopPlayback():startPlayback(); });
+$('seek').addEventListener('input',e=>{
+  curTime=parseFloat(e.target.value);
+  if(playing){ stopPlayback(); startPlayback(); }
+});
+
+$('exportFolder').addEventListener('click',exportToFolder);
+$('exportZip').addEventListener('click',exportToZip);
+$('exportFrame').addEventListener('click',exportSingleFrame);
+$('cancelBtn').addEventListener('click',()=>cancelFlag=true);
+
+$('pbg').addEventListener('change',applyPreviewBg);
+$('pbgColor').addEventListener('input',applyPreviewBg);
+function applyPreviewBg(){
+  const w=$('canvasWrap'), v=$('pbg').value;
+  w.className='';
+  w.style.background='';
+  if(v==='custom') w.style.background=$('pbgColor').value;
+  else w.classList.add('bg-'+v);
+}
+
+/* drag & drop */
+let dragDepth=0;
+window.addEventListener('dragenter',e=>{e.preventDefault();dragDepth++;document.body.classList.add('dragging');});
+window.addEventListener('dragleave',e=>{e.preventDefault();if(--dragDepth<=0){dragDepth=0;document.body.classList.remove('dragging');}});
+window.addEventListener('dragover',e=>e.preventDefault());
+window.addEventListener('drop',e=>{
+  e.preventDefault(); dragDepth=0; document.body.classList.remove('dragging');
+  const f=e.dataTransfer.files[0];
+  if(!f) return;
+  if(f.type.startsWith('audio')||/\.(mp3|wav|flac|ogg|m4a|aac|aiff?)$/i.test(f.name)){
+    loadAudio(f).catch(err=>setStatus('audio load failed: '+err.message));
+  }else if(f.type.startsWith('image')){
+    const rd=new FileReader();
+    rd.onload=()=>setLogo(rd.result).catch(err=>setStatus(err.message));
+    rd.readAsDataURL(f);
+  }
+});
+
+/* keyboard: space toggles play */
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'&&e.target.tagName!=='INPUT'&&e.target.tagName!=='SELECT'){
+    e.preventDefault();
+    if(audioBuf) playing?stopPlayback():startPlayback();
+  }
+});
+
+/* boot */
+setLogo(DEFAULT_LOGO).catch(err=>setStatus(err.message));
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
