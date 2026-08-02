@@ -1,0 +1,22 @@
+{
+  "_comment": "Example track-info payload for the background tool. Every field is optional — the layout must degrade gracefully when any are missing. See BACKGROUND_TOOL_BRIEF.md.",
+  "title": "Nightdrive",
+  "artist": "IAMSIAM",
+  "release": "Neon Arterials EP",
+  "catalog": "IAM-007",
+  "date": "2026-03-14",
+  "bpm": 128,
+  "key": "F# minor",
+  "duration": "5:42",
+  "credits": "Written & produced by IAMSIAM\nMastered at Machinedrum",
+  "links": "iamsiam.net",
+  "notes": "",
+
+  "_canvas_comment": "Must match the paired VU export. See the safe-area table in the brief.",
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "vuMarginPct": 0
+  }
+}
