@@ -58,9 +58,12 @@ voiceover) while preserving the rhythm.
 
 ## Output
 
-- PNG sequence, straight (non-premultiplied) alpha (or a black background if
-  selected), named `<prefix>00000.png`, … — always numbered from zero so
-  sections import cleanly as image sequences.
+- PNG sequence, straight (non-premultiplied) alpha by default, named
+  `<prefix>00000.png`, … — always numbered from zero so sections import
+  cleanly as image sequences.
+- **BACKGROUND** section: transparent (default), solid color, or an uploaded
+  image (cover / contain / stretch fit). Image mode with no file loaded stays
+  transparent; CLEAR drops back to alpha.
 - Default 1080×1350 (Instagram portrait) @ 30fps; size, fps (24/25/30/50/60),
   range and prefix in OUTPUT.
 - The prefix auto-fills from what's enabled — `<audio-or-track>_vu_`,
