@@ -298,6 +298,30 @@
   </fieldset>
 
   <fieldset>
+    <legend>BACKGROUND</legend>
+    <div class="row"><label for="bgMode">mode</label>
+      <select id="bgMode" style="width:130px">
+        <option value="alpha" selected>transparent</option>
+        <option value="color">solid color</option>
+        <option value="image">image</option>
+      </select>
+    </div>
+    <div class="row" id="bgColorRow" style="display:none"><label for="bgColor">color</label><input id="bgColor" type="color" value="#000000"></div>
+    <div class="row" id="bgImgRow" style="display:none">
+      <label class="btn filebtn" style="flex:1;text-align:center">LOAD IMAGE<input id="bgFile" type="file" accept="image/*"></label>
+      <button id="bgClear" class="btn">CLEAR</button>
+    </div>
+    <div class="row" id="bgFitRow" style="display:none"><label for="bgFit">fit</label>
+      <select id="bgFit" style="width:130px">
+        <option value="cover" selected>cover</option>
+        <option value="contain">contain</option>
+        <option value="stretch">stretch</option>
+      </select>
+    </div>
+    <div class="hint" id="bgInfo">no background — straight alpha, for layering over other artwork</div>
+  </fieldset>
+
+  <fieldset>
     <legend>OUTPUT</legend>
     <div class="row"><label>size px</label>
       <input id="outW" type="number" min="16" max="8192" step="1" value="1080"> ×
@@ -306,12 +330,6 @@
     <div class="row"><label for="fps">frame rate</label>
       <select id="fps" style="width:80px">
         <option>24</option><option>25</option><option selected>30</option><option>50</option><option>60</option>
-      </select>
-    </div>
-    <div class="row"><label for="bgMode">background</label>
-      <select id="bgMode" style="width:130px">
-        <option value="alpha" selected>transparent</option>
-        <option value="black">black</option>
       </select>
     </div>
     <div class="row" id="rangeRow" style="display:none"><label>range sec</label>
@@ -404,7 +422,7 @@ const S={
     titleDur:0,
     colTitle:'#ffffff', colMeta:'#8f8f88', colStrip:'#6b6b66', colBorder:'#2c2c2a',
   },
-  out:{ W:1080, H:1350, fps:30, bgMode:'alpha', prefix:'', tStart:0, tEnd:0 },
+  out:{ W:1080, H:1350, fps:30, bgMode:'alpha', bgColor:'#000000', bgFit:'cover', prefix:'', tStart:0, tEnd:0 },
 };
 const COL_DEFAULTS={colTitle:'#ffffff',colMeta:'#8f8f88',colStrip:'#6b6b66',colBorder:'#2c2c2a'};
 function alphaHex(hex,a){
@@ -414,6 +432,7 @@ function alphaHex(hex,a){
 
 /* ---------------- global state ---------------- */
 let logoCanvas=null, tintedLogo=null, barData=null;
+let bgImg=null, bgImgName='';
 let audioBuf=null, audioFileName='', monoData=null;
 let analysis=null, env=null, envAll=null, framesTotal=0;
 let previewPeaks=null;
@@ -878,9 +897,21 @@ function typedLines(lines,n){
 function infoOffsetMs(){
   return audioBuf?Math.floor((S.out.tStart||0)*S.out.fps)*1000/S.out.fps:0;
 }
+/* background: solid color, fitted image, or nothing (straight alpha).
+   image mode with no file loaded falls back to transparent */
+function drawBackground(g,W,H){
+  if(S.out.bgMode==='color'){ g.fillStyle=S.out.bgColor; g.fillRect(0,0,W,H); return; }
+  if(S.out.bgMode==='image'&&bgImg){
+    const iw=bgImg.naturalWidth, ih=bgImg.naturalHeight;
+    if(S.out.bgFit==='stretch'){ g.drawImage(bgImg,0,0,W,H); return; }
+    const sc=S.out.bgFit==='cover'?Math.max(W/iw,H/ih):Math.min(W/iw,H/ih);
+    const dw=iw*sc, dh=ih*sc;
+    g.drawImage(bgImg,(W-dw)/2,(H-dh)/2,dw,dh);
+  }
+}
 function renderFrame(g,W,H,tMs,peaks){
   g.clearRect(0,0,W,H);
-  if(S.out.bgMode==='black'){ g.fillStyle='#000'; g.fillRect(0,0,W,H); }
+  drawBackground(g,W,H);
   if(S.vu.on) renderVU(g,W,H,tMs,peaks);
   if(S.info.on){
     const it=tMs-infoOffsetMs();
@@ -984,10 +1015,13 @@ function infoText(f0,f1){
     L.push(`strip: ${S.info.stripOn?`${S.info.curator} // ${S.info.listTitle}`:'off'}`);
     if(S.info.mode==='title'&&S.info.titleDur>0) L.push(`typing duration: ${S.info.titleDur}s (scaled)`);
   }
+  const bgDesc=S.out.bgMode==='color'?`${S.out.bgColor} background`
+    :(S.out.bgMode==='image'&&bgImg)?`image bg: ${bgImgName} (${S.out.bgFit})`
+    :'straight alpha';
   L.push(
     `frames: ${total} (${padF(0)}..${padF(total-1)})`,
     `fps: ${S.out.fps}`,
-    `size: ${S.out.W}x${S.out.H} (${S.out.bgMode==='black'?'black background':'straight alpha'})`
+    `size: ${S.out.W}x${S.out.H} (${bgDesc})`
   );
   if(S.info.on){
     L.push(`typing: ends ${(TL.done/1000).toFixed(3)}s into the sequence (frame ${padF(Math.min(typingFrames(),Math.max(total-1,0)))})`);
@@ -1215,6 +1249,7 @@ $('tint').addEventListener('input',e=>{S.vu.tint=e.target.value;makeTinted();});
 $('tintOn').addEventListener('change',e=>{S.vu.tintOn=e.target.checked;makeTinted();});
 $('logoFile').addEventListener('change',e=>{
   const f=e.target.files[0];
+  e.target.value='';   // so re-picking the same file still fires
   if(!f) return;
   const rd=new FileReader();
   rd.onload=()=>setLogo(rd.result).catch(err=>setStatus(err.message));
@@ -1253,7 +1288,39 @@ function resizeCanvas(){
 }
 $('outW').addEventListener('change',resizeCanvas);
 $('outH').addEventListener('change',resizeCanvas);
-$('bgMode').addEventListener('change',e=>S.out.bgMode=e.target.value);
+
+/* --- background --- */
+function updateBgUI(){
+  $('bgMode').value=S.out.bgMode;
+  $('bgColorRow').style.display=S.out.bgMode==='color'?'':'none';
+  $('bgImgRow').style.display=S.out.bgMode==='image'?'':'none';
+  $('bgFitRow').style.display=(S.out.bgMode==='image'&&bgImg)?'':'none';
+  $('bgInfo').textContent=
+    S.out.bgMode==='color'?`solid ${S.out.bgColor} behind both layers`
+    :S.out.bgMode==='image'?(bgImg?`${bgImgName} · ${bgImg.naturalWidth}×${bgImg.naturalHeight}px`
+                                  :'no image loaded — output stays transparent')
+    :'no background — straight alpha, for layering over other artwork';
+}
+$('bgMode').addEventListener('change',e=>{ S.out.bgMode=e.target.value; updateBgUI(); });
+$('bgColor').addEventListener('input',e=>{ S.out.bgColor=e.target.value; updateBgUI(); });
+$('bgFit').addEventListener('change',e=>S.out.bgFit=e.target.value);
+$('bgFile').addEventListener('change',e=>{
+  const f=e.target.files[0];
+  e.target.value='';   // so clearing then re-picking the same file still fires
+  if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>loadImage(rd.result).then(img=>{
+    bgImg=img; bgImgName=f.name;
+    S.out.bgMode='image';
+    updateBgUI();
+  }).catch(()=>setStatus('could not load background image'));
+  rd.readAsDataURL(f);
+});
+$('bgClear').addEventListener('click',()=>{
+  bgImg=null; bgImgName='';
+  S.out.bgMode='alpha';
+  updateBgUI();
+});
 $('fps').addEventListener('change',async e=>{
   S.out.fps=parseInt(e.target.value);
   updateFrameInfo(); refreshTransport();
@@ -1269,7 +1336,9 @@ $('prefix').addEventListener('input',e=>{
 
 /* --- audio --- */
 $('audioFile').addEventListener('change',e=>{
-  if(e.target.files[0]) loadAudio(e.target.files[0]).catch(err=>setStatus('audio load failed: '+err.message));
+  const f=e.target.files[0];
+  e.target.value='';   // so clearing then re-picking the same file still fires
+  if(f) loadAudio(f).catch(err=>setStatus('audio load failed: '+err.message));
 });
 $('clearAudio').addEventListener('click',clearAudio);
 
