@@ -341,7 +341,8 @@
   </fieldset>
 
   <fieldset>
-    <legend>EXPORT · PNG + ALPHA</legend>
+    <legend>EXPORT</legend>
+    <button id="exportVideo" class="btn primary block" style="display:none">EXPORT VIDEO → MOV</button>
     <button id="exportFolder" class="btn primary block">EXPORT SEQUENCE → FOLDER</button>
     <button id="exportZip" class="btn block">EXPORT SEQUENCE → ZIP</button>
     <button id="exportFrame" class="btn block">EXPORT CURRENT FRAME</button>
@@ -1149,6 +1150,263 @@ async function exportSingleFrame(){
   setStatus('frame saved');
 }
 
+/* =========================================================================
+   VIDEO EXPORT — used when the background is baked in (color or image).
+   WebCodecs H.264, frame-by-frame from the same deterministic renderer,
+   muxed into a QuickTime .mov with the audio track as uncompressed PCM
+   (sowt) when audio is loaded. No dependencies, no re-encode of audio.
+   ========================================================================= */
+function effectiveBgOpaque(){
+  return S.out.bgMode==='color'||(S.out.bgMode==='image'&&!!bgImg);
+}
+
+/* slice the export range from the decoded buffer as interleaved 16-bit PCM */
+function sliceAudioPCM(f0,f1){
+  if(!audioBuf) return null;
+  const fps=S.out.fps;
+  const sr=audioBuf.sampleRate, ch=Math.min(2,audioBuf.numberOfChannels);
+  const s0=Math.min(audioBuf.length,Math.round(f0/fps*sr));
+  const s1=Math.min(audioBuf.length,Math.round(f1/fps*sr));
+  const n=Math.max(0,s1-s0);
+  if(!n) return null;
+  const pcm=new Int16Array(n*ch);
+  for(let c=0;c<ch;c++){
+    const d=audioBuf.getChannelData(Math.min(c,audioBuf.numberOfChannels-1));
+    for(let i=0;i<n;i++){
+      const v=Math.max(-1,Math.min(1,d[s0+i]));
+      pcm[i*ch+c]=Math.round(v*32767);
+    }
+  }
+  return {data:new Uint8Array(pcm.buffer), sampleRate:sr, channels:ch, frames:n};
+}
+
+async function exportVideoFile(){
+  const blocked=exportBlocked();
+  if(blocked){ setStatus(blocked); return; }
+  if(!('VideoEncoder' in window)){ setStatus('video export needs WebCodecs — use Chrome/Edge'); return; }
+  if((S.out.W&1)||(S.out.H&1)){ setStatus('video export needs even width/height'); return; }
+  const [f0,f1]=exportRange();
+  const fps=S.out.fps;
+  /* H.264 -> .mov with pcm audio wherever available (Chrome/Edge/Safari);
+     VP9/VP8 -> .webm fallback for browsers without an H.264 encoder */
+  const tries=[
+    {codec:'avc1.640033',container:'mov'},
+    {codec:'avc1.640028',container:'mov'},
+    {codec:'avc1.4d0028',container:'mov'},
+    {codec:'avc1.42e01e',container:'mov'},
+    {codec:'vp09.00.40.08',container:'webm',codecId:'V_VP9'},
+    {codec:'vp8',container:'webm',codecId:'V_VP8'},
+  ];
+  let cfg=null, container=null, webmCodecId=null;
+  for(const t of tries){
+    const c={codec:t.codec, width:S.out.W, height:S.out.H, framerate:fps,
+             bitrate:Math.min(40000000,Math.round(S.out.W*S.out.H*fps*0.25))};
+    if(t.container==='mov') c.avc={format:'avc'};
+    const s=await VideoEncoder.isConfigSupported(c).catch(()=>null);
+    if(s&&s.supported){ cfg=c; container=t.container; webmCodecId=t.codecId; break; }
+  }
+  if(!cfg){ setStatus('no supported video encoder at this size — try a smaller canvas'); return; }
+
+  exporting=true; cancelFlag=false;
+  stopPlayback();
+  $('cancelBtn').style.display='block';
+  showProgress(true);
+  const peaks=new Float32Array(barData?barData.bars.length:0);
+  const off=document.createElement('canvas');
+  off.width=S.out.W; off.height=S.out.H;
+  const g=off.getContext('2d');
+  const chunks=[];
+  let avcC=null, encErr=null;
+  const enc=new VideoEncoder({
+    output:(c,m)=>{
+      if(!avcC&&m&&m.decoderConfig&&m.decoderConfig.description) avcC=new Uint8Array(m.decoderConfig.description);
+      const data=new Uint8Array(c.byteLength); c.copyTo(data);
+      chunks.push({data, key:c.type==='key'});
+    },
+    error:e=>{ encErr=e; }
+  });
+  try{
+    enc.configure(cfg);
+    if(S.info.on) await document.fonts.load(`600 36px ${FONT}`);
+    for(let f=f0;f<f1;f++){
+      renderFrame(g,off.width,off.height,f*1000/fps,peaks);
+      vctx.clearRect(0,0,view.width,view.height);
+      vctx.drawImage(off,0,0,view.width,view.height);
+      const vf=new VideoFrame(off,{timestamp:Math.round((f-f0)*1e6/fps),duration:Math.round(1e6/fps)});
+      enc.encode(vf,{keyFrame:((f-f0)%(fps*2))===0});
+      vf.close();
+      while(enc.encodeQueueSize>4) await nextTick();
+      if(encErr) throw encErr;
+      const pct=Math.round((f-f0+1)/(f1-f0)*100);
+      setProgress(pct); setStatus(`encoding… ${f-f0+1}/${f1-f0} (${pct}%)`);
+      if(cancelFlag) break;
+      if((f&7)===0) await nextTick();
+    }
+    if(cancelFlag){ try{enc.close();}catch(e){} setStatus('export cancelled'); return; }
+    await enc.flush();
+    enc.close();
+    if(encErr) throw encErr;
+    if(container==='mov'&&!avcC) throw new Error('encoder produced no decoder config');
+
+    setStatus('muxing…'); await nextTick();
+    let blob, name, note;
+    if(container==='mov'){
+      const audio=sliceAudioPCM(f0,f1);
+      blob=buildMov(chunks,avcC,S.out.W,S.out.H,fps,audio);
+      name=`${prefix()}video.mov`;
+      note=audio?' (audio included)':' (no audio loaded — silent)';
+    }else{
+      /* webm fallback carries no audio track — pcm isn't allowed in webm */
+      blob=buildWebM(chunks,S.out.W,S.out.H,fps,webmCodecId);
+      name=`${prefix()}video.webm`;
+      note=audioBuf?' (no H.264 in this browser — VP9 .webm, audio not included)':' (silent)';
+    }
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=name;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+    setStatus(`done — ${f1-f0} frames → ${name}${note}`);
+  }catch(err){
+    try{enc.close();}catch(e){}
+    setStatus('video export failed: '+err.message);
+  }finally{
+    exporting=false; cancelFlag=false;
+    $('cancelBtn').style.display='none';
+    showProgress(false);
+  }
+}
+
+/* minimal QuickTime muxer: one H.264 track (AVCC samples from WebCodecs,
+   decode order, no B-frame reordering) + optional sowt PCM audio track.
+   All video samples in one chunk, all audio in another, moov at the end. */
+function buildMov(chunks,avcC,W,H,fps,audio){
+  const str=s=>{const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u;};
+  const u32=v=>new Uint8Array([(v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255]);
+  const u16=v=>new Uint8Array([(v>>>8)&255,v&255]);
+  const cat=a=>{let n=0;for(const x of a)n+=x.length;const o=new Uint8Array(n);let p=0;for(const x of a){o.set(x,p);p+=x.length;}return o;};
+  const box=(t,...parts)=>{const b=cat(parts.flat(Infinity));return cat([u32(8+b.length),str(t),b]);};
+  const full=(t,v,f,...parts)=>box(t,new Uint8Array([v,(f>>>16)&255,(f>>>8)&255,f&255]),...parts);
+
+  const TS=90000, delta=TS/fps;
+  const nV=chunks.length;
+  const durV=nV*delta;
+  const videoBytes=chunks.reduce((s,c)=>s+c.data.length,0);
+  const durMovie=Math.max(durV,audio?Math.round(audio.frames/audio.sampleRate*TS):0);
+
+  const ftyp=box('ftyp',str('qt  '),u32(0x200),str('qt  '));
+  const mdatHdr=cat([u32(8+videoBytes+(audio?audio.data.length:0)),str('mdat')]);
+  const videoOff=ftyp.length+8;
+  const audioOff=videoOff+videoBytes;
+
+  const mvhd=full('mvhd',0,0,u32(0),u32(0),u32(TS),u32(durMovie),u32(0x00010000),u16(0x0100),u16(0),
+    u32(0),u32(0),
+    u32(0x00010000),u32(0),u32(0),u32(0),u32(0x00010000),u32(0),u32(0),u32(0),u32(0x40000000),
+    u32(0),u32(0),u32(0),u32(0),u32(0),u32(0),u32(audio?3:2));
+
+  const tkhd=(id,dur,w,h,vol)=>full('tkhd',0,7,u32(0),u32(0),u32(id),u32(0),u32(dur),
+    u32(0),u32(0),u32(0),u16(0),u16(vol),u16(0),
+    u32(0x00010000),u32(0),u32(0),u32(0),u32(0x00010000),u32(0),u32(0),u32(0),u32(0x40000000),
+    u32(w<<16),u32(h<<16));
+  const mdhd=(ts,dur)=>full('mdhd',0,0,u32(0),u32(0),u32(ts),u32(dur),u16(0x55c4),u16(0));
+  const hdlr=sub=>full('hdlr',0,0,u32(0),str(sub),u32(0),u32(0),u32(0),str(sub==='vide'?'VideoHandler':'SoundHandler'),new Uint8Array([0]));
+  const dinf=box('dinf',full('dref',0,0,u32(1),full('url ',0,1)));
+
+  /* --- video trak --- */
+  const avc1=box('avc1',
+    new Uint8Array(6),u16(1),
+    u16(0),u16(0),u32(0),u32(0),u32(0),
+    u16(W),u16(H),u32(0x00480000),u32(0x00480000),u32(0),u16(1),
+    new Uint8Array(32),u16(0x18),u16(0xffff),
+    box('avcC',avcC));
+  const stts=full('stts',0,0,u32(1),u32(nV),u32(delta));
+  const keys=[];
+  chunks.forEach((c,i)=>{ if(c.key) keys.push(i+1); });
+  const stss=full('stss',0,0,u32(keys.length),keys.map(k=>u32(k)));
+  const stsc=full('stsc',0,0,u32(1),u32(1),u32(nV),u32(1));
+  const stsz=full('stsz',0,0,u32(0),u32(nV),chunks.map(c=>u32(c.data.length)));
+  const stco=full('stco',0,0,u32(1),u32(videoOff));
+  const stblV=box('stbl',full('stsd',0,0,u32(1),avc1),stts,stss,stsc,stsz,stco);
+  const minfV=box('minf',full('vmhd',0,1,u16(0),u16(0),u16(0),u16(0)),dinf,stblV);
+  const trakV=box('trak',tkhd(1,durV,W,H,0),
+    box('mdia',mdhd(TS,durV),hdlr('vide'),minfV));
+
+  /* --- audio trak (sowt = 16-bit little-endian pcm) --- */
+  let trakA=null;
+  if(audio){
+    const bytesPerFrame=2*audio.channels;
+    const sowt=box('sowt',
+      new Uint8Array(6),u16(1),
+      u16(0),u16(0),u32(0),
+      u16(audio.channels),u16(16),u16(0),u16(0),u32(audio.sampleRate<<16));
+    const sttsA=full('stts',0,0,u32(1),u32(audio.frames),u32(1));
+    const stscA=full('stsc',0,0,u32(1),u32(1),u32(audio.frames),u32(1));
+    const stszA=full('stsz',0,0,u32(bytesPerFrame),u32(audio.frames));
+    const stcoA=full('stco',0,0,u32(1),u32(audioOff));
+    const stblA=box('stbl',full('stsd',0,0,u32(1),sowt),sttsA,stscA,stszA,stcoA);
+    const minfA=box('minf',full('smhd',0,0,u16(0),u16(0)),dinf,stblA);
+    trakA=box('trak',tkhd(2,Math.round(audio.frames/audio.sampleRate*TS),0,0,0x0100),
+      box('mdia',mdhd(audio.sampleRate,audio.frames),hdlr('soun'),minfA));
+  }
+
+  const moov=box('moov',mvhd,trakV,trakA?[trakA]:[]);
+  return new Blob([ftyp,mdatHdr,...chunks.map(c=>c.data),...(audio?[audio.data]:[]),moov],{type:'video/quicktime'});
+}
+
+/* minimal WebM muxer, video-only — fallback for browsers without H.264 */
+function buildWebM(chunks,W,H,fps,codecId){
+  const cat=a=>{let n=0;for(const x of a)n+=x.length;const o=new Uint8Array(n);let p=0;for(const x of a){o.set(x,p);p+=x.length;}return o;};
+  const vint=v=>{ /* EBML size encoding */
+    if(v<0x7f) return new Uint8Array([0x80|v]);
+    if(v<0x3fff) return new Uint8Array([0x40|(v>>8),v&255]);
+    if(v<0x1fffff) return new Uint8Array([0x20|(v>>16),(v>>8)&255,v&255]);
+    if(v<0x0fffffff) return new Uint8Array([0x10|(v>>>24),(v>>>16)&255,(v>>>8)&255,v&255]);
+    return new Uint8Array([0x08,Math.floor(v/0x100000000)&255,(v>>>24)&255,(v>>>16)&255,(v>>>8)&255,v&255]);
+  };
+  const el=(id,body)=>cat([Uint8Array.from(id),vint(body.length),body]);
+  const uint=v=>{ const b=[]; do{ b.unshift(v&255); v=Math.floor(v/256); }while(v>0); return new Uint8Array(b); };
+  const str=s=>{const u=new Uint8Array(s.length);for(let i=0;i<s.length;i++)u[i]=s.charCodeAt(i);return u;};
+  const f64=v=>{const b=new ArrayBuffer(8);new DataView(b).setFloat64(0,v);return new Uint8Array(b);};
+
+  const ebml=el([0x1A,0x45,0xDF,0xA3],cat([
+    el([0x42,0x86],uint(1)), el([0x42,0xF7],uint(1)),
+    el([0x42,0xF2],uint(4)), el([0x42,0xF3],uint(8)),
+    el([0x42,0x82],str('webm')), el([0x42,0x87],uint(2)), el([0x42,0x85],uint(2)),
+  ]));
+  const durMs=chunks.length*1000/fps;
+  const info=el([0x15,0x49,0xA9,0x66],cat([
+    el([0x2A,0xD7,0xB1],uint(1000000)),
+    el([0x4D,0x80],str('iamsiam-studio')), el([0x57,0x41],str('iamsiam-studio')),
+    el([0x44,0x89],f64(durMs)),
+  ]));
+  const tracks=el([0x16,0x54,0xAE,0x6B],el([0xAE],cat([
+    el([0xD7],uint(1)), el([0x73,0xC5],uint(1)), el([0x83],uint(1)), el([0x9C],uint(0)),
+    el([0x86],str(codecId)),
+    el([0x23,0xE3,0x83],uint(Math.round(1e9/fps))),
+    el([0xE0],cat([el([0xB0],uint(W)),el([0xBA],uint(H))])),
+  ])));
+
+  const clusters=[];
+  let clusterBlocks=[], clusterT0=0;
+  const flush=()=>{
+    if(!clusterBlocks.length) return;
+    clusters.push(el([0x1F,0x43,0xB6,0x75],cat([el([0xE7],uint(clusterT0)),...clusterBlocks])));
+    clusterBlocks=[];
+  };
+  chunks.forEach((c,i)=>{
+    const t=Math.round(i*1000/fps);
+    if(!clusterBlocks.length) clusterT0=t;
+    else if(c.key||t-clusterT0>30000){ flush(); clusterT0=t; }
+    const rel=t-clusterT0;
+    const head=new Uint8Array([0x81,(rel>>8)&255,rel&255,c.key?0x80:0]);
+    clusterBlocks.push(el([0xA3],cat([head,c.data])));
+  });
+  flush();
+
+  const segment=el([0x18,0x53,0x80,0x67],cat([info,tracks,...clusters]));
+  return new Blob([ebml,segment],{type:'video/webm'});
+}
+
 /* ---- minimal zip writer (store method — PNGs are already compressed) ---- */
 const CRC_T=(()=>{const t=new Uint32Array(256);
   for(let i=0;i<256;i++){let c=i;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[i]=c;}
@@ -1205,8 +1463,15 @@ function updateFrameInfo(){
   }
   if(!prefixCustom) $('prefix').placeholder=autoPrefix();
   $('loopHint').textContent=
-    (!audioBuf&&S.info.on)?'sequence = typing + one 1.0s blink cycle. loop the last cycle in your editor — the seam is invisible.'
+    effectiveBgOpaque()?'background is baked in → exports as an H.264 .mov video (audio track included when loaded). set background to transparent for a png sequence + alpha.'
+    :(!audioBuf&&S.info.on)?'sequence = typing + one 1.0s blink cycle. loop the last cycle in your editor — the seam is invisible.'
     :audioBuf?'sequence follows the audio range set in OUTPUT.':'';
+}
+function updateExportUI(){
+  const vid=effectiveBgOpaque();
+  $('exportVideo').style.display=vid?'block':'none';
+  $('exportFolder').style.display=vid?'none':'block';
+  $('exportZip').style.display=vid?'none':'block';
 }
 function refreshTransport(){
   $('seek').max=audioBuf?audioBuf.duration:previewDur()/1000;
@@ -1300,6 +1565,7 @@ function updateBgUI(){
     :S.out.bgMode==='image'?(bgImg?`${bgImgName} · ${bgImg.naturalWidth}×${bgImg.naturalHeight}px`
                                   :'no image loaded — output stays transparent')
     :'no background — straight alpha, for layering over other artwork';
+  updateExportUI(); updateFrameInfo();
 }
 $('bgMode').addEventListener('change',e=>{ S.out.bgMode=e.target.value; updateBgUI(); });
 $('bgColor').addEventListener('input',e=>{ S.out.bgColor=e.target.value; updateBgUI(); });
@@ -1362,6 +1628,7 @@ $('seek').addEventListener('input',e=>{
 });
 
 /* --- export buttons --- */
+$('exportVideo').addEventListener('click',()=>{ if(!exporting) exportVideoFile(); });
 $('exportFolder').addEventListener('click',()=>{ if(!exporting) exportToFolder(); });
 $('exportZip').addEventListener('click',()=>{ if(!exporting) exportToZip(); });
 $('exportFrame').addEventListener('click',()=>{ if(!exporting) exportSingleFrame(); });
@@ -1410,6 +1677,7 @@ window.addEventListener('keydown',e=>{
    ========================================================================= */
 buildTimeline();
 refreshTransport();
+updateExportUI();
 setLogo(DEFAULT_LOGO).catch(err=>setStatus(err.message));
 document.fonts.ready.then(()=>{ updateFrameInfo(); });
 

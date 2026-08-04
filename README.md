@@ -64,6 +64,12 @@ voiceover) while preserving the rhythm.
 - **BACKGROUND** section: transparent (default), solid color, or an uploaded
   image (cover / contain / stretch fit). Image mode with no file loaded stays
   transparent; CLEAR drops back to alpha.
+- **The background picks the export format.** Transparent → PNG sequence +
+  alpha (a compositing asset). Color or image background → the export buttons
+  switch to **EXPORT VIDEO → MOV**: H.264 encoded in the browser and muxed
+  with the loaded audio as uncompressed PCM — a finished, Premiere- and
+  social-ready file in one pass. Browsers without an H.264 encoder fall back
+  to a VP9 `.webm` (video only).
 - Default 1080×1350 (Instagram portrait) @ 30fps; size, fps (24/25/30/50/60),
   range and prefix in OUTPUT.
 - The prefix auto-fills from what's enabled — `<audio-or-track>_vu_`,
