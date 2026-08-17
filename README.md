@@ -47,14 +47,16 @@ language), and **MD ascii arrows** (the ↑ glyph rendering). Meter layout is
 derived from the logo PNG's alpha channel at load time, so any transparent
 PNG also works via REPLACE PNG.
 
-Two **meter styles**:
-- **side-to-side bars** — each horizontal bar is a meter reacting left/right
-  (the original mechanic; best for the scanline logos)
-- **rising fill ↑** — each vertical column is a meter filling bottom-to-top,
-  with the waterline measured against the whole logo's height so all parts of
-  the artwork fill together, snapped to glyph rows so characters light whole.
-  A **ghost logo** slider keeps a faint full logo behind the lit portion.
-  Best for the arrows logo — columns map left→right across the spectrum. Controls: grow direction (center/left/right), frequency bands
+The **grow from** control picks the meter mechanic:
+- **center ⇔ / left ⇒ / ⇐ right** — each horizontal bar is a meter reacting
+  side to side (the original mechanic; best for the scanline logos)
+- **⇑ bottom (rising fill)** — each vertical column is a meter filling
+  bottom-to-top, with the waterline measured against the whole logo's height
+  so all parts of the artwork fill together. On glyph/scanline logos the
+  waterline snaps to rows so characters light whole; on solid logos it rises
+  smoothly. A **ghost logo** slider keeps a faint full logo behind the lit
+  portion. Best with the arrows logo — columns map left→right across the
+  spectrum. Controls: grow direction (center/left/right), frequency bands
 per row or overall loudness, idle width, gain, contrast, attack/release,
 per-band auto-leveling, peak-hold ticks, tint, logo margin.
 

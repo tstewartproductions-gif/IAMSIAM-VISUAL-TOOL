@@ -226,12 +226,6 @@
         <option value="mdArrows">MD ascii arrows</option>
       </select>
     </div>
-    <div class="row"><label for="vuStyle">meter style</label>
-      <select id="vuStyle" style="width:150px">
-        <option value="bars" selected>side-to-side bars</option>
-        <option value="rise">rising fill ↑</option>
-      </select>
-    </div>
     <div class="row">
       <label class="btn filebtn" style="flex:1;text-align:center">REPLACE PNG<input id="logoFile" type="file" accept="image/png,image/webp"></label>
       <button id="resetLogo" class="btn">RESET</button>
@@ -244,10 +238,11 @@
       <span class="val">on</span>
     </div>
     <div class="row"><label for="anchor">grow from</label>
-      <select id="anchor" style="width:120px">
+      <select id="anchor" style="width:150px">
         <option value="center">center ⇔</option>
         <option value="left">left ⇒</option>
         <option value="right" selected>⇐ right</option>
+        <option value="bottom">⇑ bottom (rising fill)</option>
       </select>
     </div>
     <div class="row"><label for="vuReact">react to</label>
@@ -829,9 +824,18 @@ function renderVU(g,W,H,tMs,peaks){
       const [x0,x1]=barData.cols[i];
       const lvl=levelForRise(i,frame);
       const frac=clamp(minF+lvl*(1-minF),0,1);
-      const nLit=Math.round(frac*nSt);
-      if(nLit>0){
-        const yW=st[nSt-nLit][0];
+      /* glyph/scanline art: snap the waterline to row strips so characters
+         light whole. coarse art (solid logos, few strips): continuous
+         waterline so the fill rises smoothly instead of popping in chunks */
+      let yW=null;
+      if(nSt>=8){
+        const nLit=Math.round(frac*nSt);
+        if(nLit>0) yW=st[nSt-nLit][0];
+      }else{
+        const fh=frac*(yBot-yTop);
+        if(fh>0.5) yW=yBot-fh;
+      }
+      if(yW!==null){
         g.drawImage(tintedLogo, x0,yW,x1-x0,yBot-yW, ox+x0*sc, oy+yW*sc, (x1-x0)*sc, (yBot-yW)*sc);
       }
       if(S.vu.peak&&peaks){
@@ -1587,11 +1591,14 @@ bindRange('release',S.vu,'release',v=>v+'ms',buildEnv);
 bindRange('peakDecay',S.vu,'peakDecay',v=>v.toFixed(1)+'/s');
 bindRange('marginPct',S.vu,'margin',v=>v+'%');
 bindRange('ghost',S.vu,'ghost',v=>v+'%');
-$('vuStyle').addEventListener('change',async e=>{
-  S.vu.style=e.target.value;
-  if(monoData) await analyze();          // band count changes with the style
+$('anchor').addEventListener('change',async e=>{
+  S.vu.anchor=e.target.value;
+  const style=S.vu.anchor==='bottom'?'rise':'bars';
+  if(style!==S.vu.style){
+    S.vu.style=style;
+    if(monoData) await analyze();        // band count changes with the style
+  }
 });
-$('anchor').addEventListener('change',e=>S.vu.anchor=e.target.value);
 $('vuReact').addEventListener('change',e=>S.vu.react=e.target.value);
 $('flip').addEventListener('change',e=>S.vu.flip=e.target.checked);
 $('autoGain').addEventListener('change',e=>{S.vu.autoGain=e.target.checked;buildEnv();});
