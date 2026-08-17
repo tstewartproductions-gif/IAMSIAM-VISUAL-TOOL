@@ -41,9 +41,11 @@ time.
 ## Layers
 
 ### VU
-Bar layout is derived from the logo PNG's alpha channel at load time (61 bars /
-28 rows for the bundled logo — any line-based transparent PNG works via
-REPLACE PNG). Controls: grow direction (center/left/right), frequency bands
+Two logos are built in, switchable from the **logo** dropdown: **IAMSIAM
+ascii** (61 bars / 28 rows) and **MD ascii bars** (87 bars / 36 rows — the MD
+monogram sliced into the same scanline-bar language). Bar layout is derived
+from the logo PNG's alpha channel at load time, so any line-based transparent
+PNG also works via REPLACE PNG. Controls: grow direction (center/left/right), frequency bands
 per row or overall loudness, idle width, gain, contrast, attack/release,
 per-band auto-leveling, peak-hold ticks, tint, logo margin.
 
