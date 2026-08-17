@@ -252,6 +252,8 @@
       </select>
     </div>
     <div class="row"><label for="ghost">ghost logo</label><input id="ghost" type="range" min="0" max="50" step="1" value="12"><span class="val" id="ghostV">12%</span></div>
+    <div class="row"><label for="partsSep">fill parts separately</label><input id="partsSep" type="checkbox"><span class="val"></span></div>
+    <div class="hint">rising fill only — each piece of the logo (M / D) rises from its own bottom instead of one shared waterline</div>
     <div class="row"><label for="flip">low freq at top</label><input id="flip" type="checkbox"><span class="val"></span></div>
     <div class="row"><label for="minw">idle width</label><input id="minw" type="range" min="0" max="60" step="1" value="0"><span class="val" id="minwV">0%</span></div>
     <div class="row"><label for="gain">gain</label><input id="gain" type="range" min="0.3" max="4" step="0.05" value="1.35"><span class="val" id="gainV">1.35</span></div>
@@ -423,7 +425,7 @@ const S={
   vu:{
     on:true, logo:'iamsiam', style:'bars', anchor:'right', react:'bands', flip:false,
     minw:0, gain:1.35, curve:2.2, attack:0, release:20,
-    autoGain:true, peak:true, peakDecay:1.9, ghost:12,
+    autoGain:true, peak:true, peakDecay:1.9, ghost:12, parts:false,
     tint:'#ffffff', tintOn:true, margin:0,
   },
   info:{
@@ -532,7 +534,23 @@ function extractBars(img){
     else mergedCols.push([...s]);
   }
   const cols=mergedCols.filter(([x0,x1])=>x1-x0>=MINW);
-  return {bars, rows:strips.length, strips, cols, w:W, h:H, canvas:c};
+  /* parts: clusters of row strips split at unusually large vertical gaps —
+     e.g. the blank line between the M and the D of the monogram. Contiguous
+     artwork yields a single part. */
+  const parts=[];
+  if(strips.length){
+    const gaps=[];
+    for(let i=1;i<strips.length;i++) gaps.push(strips[i][0]-strips[i-1][1]);
+    const sorted=[...gaps].sort((a,b)=>a-b);
+    const median=sorted.length?sorted[Math.floor(sorted.length/2)]:0;
+    const contentH=strips[strips.length-1][1]-strips[0][0];
+    const TH_GAP=Math.max(2.5*median,0.02*contentH);
+    let i0=0;
+    for(let i=1;i<=strips.length;i++){
+      if(i===strips.length||gaps[i-1]>TH_GAP){ parts.push({i0,i1:i-1}); i0=i; }
+    }
+  }
+  return {bars, rows:strips.length, strips, cols, parts, w:W, h:H, canvas:c};
 }
 
 function makeTinted(){
@@ -555,7 +573,7 @@ async function setLogo(src){
   barData=data; logoCanvas=data.canvas;
   makeTinted();
   previewPeaks=new Float32Array(Math.max(barData.bars.length,barData.cols.length));
-  $('logoInfo').textContent=`${data.bars.length} bars · ${data.rows} rows · ${data.cols.length} cols · ${data.w}×${data.h}px`;
+  $('logoInfo').textContent=`${data.bars.length} bars · ${data.rows} rows · ${data.cols.length} cols · ${data.parts.length} part${data.parts.length===1?'':'s'} · ${data.w}×${data.h}px`;
   if(monoData) await analyze();          // band count follows the artwork
 }
 
@@ -810,42 +828,45 @@ function renderVU(g,W,H,tMs,peaks){
   g.fillStyle=S.vu.tintOn?S.vu.tint:'#ffffff';
 
   if(S.vu.style==='rise'){
-    /* rising fill: one meter per column strip, waterline measured on the
-       WHOLE logo's height (all pieces fill together, bottom to top) and
-       snapped to row-strip boundaries so glyphs light whole, never sliced */
+    /* rising fill: one meter per column strip, waterline snapped to
+       row-strip boundaries so glyphs light whole, never sliced.
+       Whole-logo mode: one waterline over the full height, so all pieces
+       fill together. Parts mode: each detected part (e.g. the M and the D)
+       fills from its OWN bottom edge, driven by the same column level. */
     const st=barData.strips, nSt=st.length;
-    const yTop=st[0][0], yBot=st[nSt-1][1];
+    const parts=(S.vu.parts&&barData.parts.length>1)?barData.parts:[{i0:0,i1:nSt-1}];
     if(S.vu.ghost>0){
       g.globalAlpha=S.vu.ghost/100;
       g.drawImage(tintedLogo,0,0,barData.w,barData.h, ox,oy, barData.w*sc,barData.h*sc);
       g.globalAlpha=1;
     }
+    const th=Math.max(4,barData.h*0.012);   // peak tick thickness in logo px
     for(let i=0;i<barData.cols.length;i++){
       const [x0,x1]=barData.cols[i];
       const lvl=levelForRise(i,frame);
       const frac=clamp(minF+lvl*(1-minF),0,1);
-      /* glyph/scanline art: snap the waterline to row strips so characters
-         light whole. coarse art (solid logos, few strips): continuous
-         waterline so the fill rises smoothly instead of popping in chunks */
-      let yW=null;
-      if(nSt>=8){
-        const nLit=Math.round(frac*nSt);
-        if(nLit>0) yW=st[nSt-nLit][0];
-      }else{
-        const fh=frac*(yBot-yTop);
-        if(fh>0.5) yW=yBot-fh;
-      }
-      if(yW!==null){
-        g.drawImage(tintedLogo, x0,yW,x1-x0,yBot-yW, ox+x0*sc, oy+yW*sc, (x1-x0)*sc, (yBot-yW)*sc);
-      }
-      if(S.vu.peak&&peaks){
-        peaks[i]=Math.max(frac,(peaks[i]||0)-dec);
-        const pf=peaks[i];
-        if(pf>frac+0.02){
+      if(S.vu.peak&&peaks) peaks[i]=Math.max(frac,(peaks[i]||0)-dec);
+      const pf=peaks?peaks[i]:0;
+      for(const part of parts){
+        const pSt=part.i1-part.i0+1;
+        const yTop=st[part.i0][0], yBot=st[part.i1][1];
+        /* glyph/scanline art: snap to row strips. coarse art (few strips):
+           continuous waterline so the fill rises smoothly, not in chunks */
+        let yW=null;
+        if(pSt>=8){
+          const nLit=Math.round(frac*pSt);
+          if(nLit>0) yW=st[part.i1-nLit+1][0];
+        }else{
+          const fh=frac*(yBot-yTop);
+          if(fh>0.5) yW=yBot-fh;
+        }
+        if(yW!==null){
+          g.drawImage(tintedLogo, x0,yW,x1-x0,yBot-yW, ox+x0*sc, oy+yW*sc, (x1-x0)*sc, (yBot-yW)*sc);
+        }
+        if(S.vu.peak&&peaks&&pf>frac+0.02){
           /* tick = a thin slice of the artwork itself at the peak height, so
              it only appears where the column actually has ink */
           const py=yBot-pf*(yBot-yTop);
-          const th=Math.max(4,barData.h*0.012);
           g.drawImage(tintedLogo, x0,py,x1-x0,th, ox+x0*sc, oy+py*sc, (x1-x0)*sc, th*sc);
         }
       }
@@ -1120,7 +1141,7 @@ function infoText(f0,f1){
       'of the loop equals the frame after its last, so the seam is invisible.');
   }
   if(S.info.on) L.push('',`info colors: title ${S.info.colTitle} · details ${S.info.colMeta} · strip ${S.info.colStrip} · border ${S.info.colBorder}`);
-  if(S.vu.on) L.push(`vu: ${S.vu.logo} logo · ${S.vu.style==='rise'?'rising fill':'side-to-side bars'} · tint ${S.vu.tintOn?S.vu.tint:'original'} · idle ${S.vu.minw}%`);
+  if(S.vu.on) L.push(`vu: ${S.vu.logo} logo · ${S.vu.style==='rise'?`rising fill${S.vu.parts?' (parts separate)':''}`:'side-to-side bars'} · tint ${S.vu.tintOn?S.vu.tint:'original'} · idle ${S.vu.minw}%`);
   L.push('',
     'ProRes 4444 with alpha:',
     `  ffmpeg -framerate ${S.out.fps} -i ${p}%05d.png -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le ${p}alpha.mov`,
@@ -1602,6 +1623,7 @@ $('anchor').addEventListener('change',async e=>{
 $('vuReact').addEventListener('change',e=>S.vu.react=e.target.value);
 $('flip').addEventListener('change',e=>S.vu.flip=e.target.checked);
 $('autoGain').addEventListener('change',e=>{S.vu.autoGain=e.target.checked;buildEnv();});
+$('partsSep').addEventListener('change',e=>S.vu.parts=e.target.checked);
 $('peak').addEventListener('change',e=>S.vu.peak=e.target.checked);
 $('tint').addEventListener('input',e=>{S.vu.tint=e.target.value;makeTinted();});
 $('tintOn').addEventListener('change',e=>{S.vu.tintOn=e.target.checked;makeTinted();});

@@ -56,7 +56,9 @@ The **grow from** control picks the meter mechanic:
   waterline snaps to rows so characters light whole; on solid logos it rises
   smoothly. A **ghost logo** slider keeps a faint full logo behind the lit
   portion. Best with the arrows logo — columns map left→right across the
-  spectrum. Controls: grow direction (center/left/right), frequency bands
+  spectrum. **Fill parts separately** switches from one shared waterline to
+  per-piece fills: each detected part of the artwork (the M and the D of the
+  monogram) rises from its own bottom edge. Controls: grow direction (center/left/right), frequency bands
 per row or overall loudness, idle width, gain, contrast, attack/release,
 per-band auto-leveling, peak-hold ticks, tint, logo margin.
 
