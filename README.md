@@ -41,11 +41,20 @@ time.
 ## Layers
 
 ### VU
-Two logos are built in, switchable from the **logo** dropdown: **IAMSIAM
-ascii** (61 bars / 28 rows) and **MD ascii bars** (87 bars / 36 rows — the MD
-monogram sliced into the same scanline-bar language). Bar layout is derived
-from the logo PNG's alpha channel at load time, so any line-based transparent
-PNG also works via REPLACE PNG. Controls: grow direction (center/left/right), frequency bands
+Three logos are built in, switchable from the **logo** dropdown: **IAMSIAM
+ascii**, **MD ascii bars** (the monogram sliced into the same scanline-bar
+language), and **MD ascii arrows** (the ↑ glyph rendering). Meter layout is
+derived from the logo PNG's alpha channel at load time, so any transparent
+PNG also works via REPLACE PNG.
+
+Two **meter styles**:
+- **side-to-side bars** — each horizontal bar is a meter reacting left/right
+  (the original mechanic; best for the scanline logos)
+- **rising fill ↑** — each vertical column is a meter filling bottom-to-top,
+  with the waterline measured against the whole logo's height so all parts of
+  the artwork fill together, snapped to glyph rows so characters light whole.
+  A **ghost logo** slider keeps a faint full logo behind the lit portion.
+  Best for the arrows logo — columns map left→right across the spectrum. Controls: grow direction (center/left/right), frequency bands
 per row or overall loudness, idle width, gain, contrast, attack/release,
 per-band auto-leveling, peak-hold ticks, tint, logo margin.
 
