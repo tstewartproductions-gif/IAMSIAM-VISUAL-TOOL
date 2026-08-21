@@ -290,7 +290,8 @@
       <div class="row"><label for="artist">artist</label></div>
       <input id="artist" type="text" value="Wiley" style="margin-bottom:8px">
       <div class="row"><label for="title">track title</label></div>
-      <input id="title" type="text" value="Eskimo" style="margin-bottom:8px">
+      <textarea id="title" rows="2" style="margin-bottom:8px">Eskimo</textarea>
+      <div class="hint" style="margin-bottom:8px">long titles wrap automatically — press enter for a manual line break</div>
       <div class="row"><label for="details">details line</label></div>
       <input id="details" type="text" value="eskimo [white label] · 2002 · 140 BPM · F# MIN · 3:58">
       <div class="hint" style="margin-bottom:8px">details is free text — put whatever fields fit the track</div>
@@ -949,15 +950,27 @@ function renderInfo(g,W,H,tMs){
       else{ g.fillStyle=S.info.colTitle; g.fillRect(cx+6*sc,cy-27*sc*ts,15*sc*ts,29*sc*ts); }
     }
   }else{
+    /* track mode: the title auto-wraps to the frame width and honours manual
+       newlines from the textarea; lines stack upward from the fixed details
+       baseline. wrap + \n each consume one char, so typedLines stays exact. */
     const yMeta=H-146*sc, yTitle=H-(146+54*ts)*sc;
-    g.fillStyle=S.info.colTitle; g.font=`600 ${36*sc*ts}px ${FONT}`;
-    g.fillText(st.typedT,x,yTitle);
-    const wT=g.measureText(st.typedT).width;
+    const f1=`600 ${36*sc*ts}px ${FONT}`;
+    g.font=f1;
+    const maxW=W-2*x;
+    const L1=TL.T.split('\n').flatMap(s=>wrapText(g,s,maxW));
+    const lh=50*sc*ts;
+    let y=yTitle-(L1.length-1)*lh;
+    let cx=x, cy=yTitle;
+    g.fillStyle=S.info.colTitle;
+    for(const ln of typedLines(L1,st.n)){
+      g.fillText(ln,x,y);
+      cx=x+g.measureText(ln).width; cy=y; y+=lh;
+    }
     g.fillStyle=S.info.colMeta; g.font=`400 ${26*sc*ts}px ${FONT}`;
     g.fillText(st.typedM,x,yMeta);
     const wM=g.measureText(st.typedM).width;
     if(cursorVisible){
-      if(st.n<TL.T.length){ g.fillStyle=S.info.colTitle; g.fillRect(x+wT+6*sc,yTitle-28*sc*ts,16*sc*ts,30*sc*ts); }
+      if(st.n<TL.T.length){ g.fillStyle=S.info.colTitle; g.fillRect(cx+6*sc,cy-28*sc*ts,16*sc*ts,30*sc*ts); }
       else{ g.fillStyle=S.info.colMeta; g.fillRect(x+wM+6*sc,yMeta-20*sc*ts,14*sc*ts,24*sc*ts); }
     }
   }
@@ -1120,7 +1133,7 @@ function infoText(f0,f1){
     L.push(`audio range: ${(f0/S.out.fps).toFixed(3)}s -> ${(f1/S.out.fps).toFixed(3)}s`);
   }
   if(S.info.on){
-    L.push(S.info.mode==='title'?`title screen: ${S.info.introText}`:`track: ${S.info.rank}/${S.info.total} ${S.info.artist} — ${S.info.title}`);
+    L.push(S.info.mode==='title'?`title screen: ${S.info.introText}`:`track: ${S.info.rank}/${S.info.total} ${S.info.artist} — ${S.info.title.replace(/\n/g,' / ')}`);
     L.push(S.info.mode==='title'?`this week: ${S.info.weekText}`:`details: ${S.info.details}`);
     L.push(`strip: ${S.info.stripOn?`${S.info.curator} // ${S.info.listTitle}`:'off'}`);
     if(S.info.mode==='title'&&S.info.titleDur>0) L.push(`typing duration: ${S.info.titleDur}s (scaled)`);
