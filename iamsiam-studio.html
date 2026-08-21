@@ -295,6 +295,8 @@
       <input id="details" type="text" value="eskimo [white label] · 2002 · 140 BPM · F# MIN · 3:58">
       <div class="hint" style="margin-bottom:8px">details is free text — put whatever fields fit the track</div>
     </div>
+    <div class="row"><label for="textScale">text size</label><input id="textScale" type="range" min="50" max="150" step="5" value="100"><span class="val" id="textScaleV">100%</span></div>
+    <div class="hint" style="margin-bottom:8px">shrink to fit long titles — scales title + details, not the strip</div>
     <div class="row"><label for="stripOn">show strip</label><input id="stripOn" type="checkbox" checked><span class="val"></span></div>
     <div class="row"><label for="curator">curator</label></div>
     <input id="curator" type="text" value="scrufizzer" style="margin-bottom:8px">
@@ -435,7 +437,7 @@ const S={
     stripOn:true, curator:'scrufizzer', listTitle:'top 5 grime instrumentals of all time',
     introText:'INTRODUCING IAMSIAM LISTS : A WEEKLY COLLECTION OF MUSIC RECOMMENDATIONS, CURATED BY FRIENDS AND FAMILY',
     weekText:"THIS WEEK : SCRUFIZZER'S TOP 5 GRIME INSTRUMENTALS AND TOP 5 GRIME VERSES OF ALL TIME",
-    titleDur:0,
+    titleDur:0, textScale:100,
     colTitle:'#ffffff', colMeta:'#8f8f88', colStrip:'#6b6b66', colBorder:'#2c2c2a',
   },
   out:{ W:1080, H:1350, fps:30, bgMode:'alpha', bgColor:'#000000', bgFit:'cover', prefix:'', tStart:0, tEnd:0 },
@@ -911,6 +913,7 @@ function renderVU(g,W,H,tMs,peaks){
 /* typed text layer — geometry authored at 1080 wide, bottom-anchored */
 function renderInfo(g,W,H,tMs){
   const sc=W/1080;
+  const ts=S.info.textScale/100;   // scales the typed block only; strip stays put
   const st=typedAt(tMs);
   const x=128*sc;
   g.textBaseline='alphabetic';
@@ -919,10 +922,10 @@ function renderInfo(g,W,H,tMs){
 
   if(S.info.mode==='title'){
     const maxW=W-2*x;
-    const f1=`600 ${34*sc}px ${FONT}`, f2=`400 ${25*sc}px ${FONT}`;
+    const f1=`600 ${34*sc*ts}px ${FONT}`, f2=`400 ${25*sc*ts}px ${FONT}`;
     g.font=f1; const L1=wrapText(g,TL.T,maxW);
     g.font=f2; const L2=wrapText(g,TL.M,maxW);
-    const lh1=50*sc, lh2=40*sc, gap=52*sc;
+    const lh1=50*sc*ts, lh2=40*sc*ts, gap=52*sc*ts;
     const yEnd=H-146*sc;
     let y=yEnd-((L1.length-1)*lh1+gap+(L2.length-1)*lh2);
     let cx=x, cy=y, inMeta=false;
@@ -942,20 +945,20 @@ function renderInfo(g,W,H,tMs){
       }
     }
     if(cursorVisible){
-      if(inMeta){ g.fillStyle=S.info.colMeta; g.fillRect(cx+6*sc,cy-20*sc,14*sc,24*sc); }
-      else{ g.fillStyle=S.info.colTitle; g.fillRect(cx+6*sc,cy-27*sc,15*sc,29*sc); }
+      if(inMeta){ g.fillStyle=S.info.colMeta; g.fillRect(cx+6*sc,cy-20*sc*ts,14*sc*ts,24*sc*ts); }
+      else{ g.fillStyle=S.info.colTitle; g.fillRect(cx+6*sc,cy-27*sc*ts,15*sc*ts,29*sc*ts); }
     }
   }else{
-    const yTitle=H-200*sc, yMeta=H-146*sc;
-    g.fillStyle=S.info.colTitle; g.font=`600 ${36*sc}px ${FONT}`;
+    const yMeta=H-146*sc, yTitle=H-(146+54*ts)*sc;
+    g.fillStyle=S.info.colTitle; g.font=`600 ${36*sc*ts}px ${FONT}`;
     g.fillText(st.typedT,x,yTitle);
     const wT=g.measureText(st.typedT).width;
-    g.fillStyle=S.info.colMeta; g.font=`400 ${26*sc}px ${FONT}`;
+    g.fillStyle=S.info.colMeta; g.font=`400 ${26*sc*ts}px ${FONT}`;
     g.fillText(st.typedM,x,yMeta);
     const wM=g.measureText(st.typedM).width;
     if(cursorVisible){
-      if(st.n<TL.T.length){ g.fillStyle=S.info.colTitle; g.fillRect(x+wT+6*sc,yTitle-28*sc,16*sc,30*sc); }
-      else{ g.fillStyle=S.info.colMeta; g.fillRect(x+wM+6*sc,yMeta-20*sc,14*sc,24*sc); }
+      if(st.n<TL.T.length){ g.fillStyle=S.info.colTitle; g.fillRect(x+wT+6*sc,yTitle-28*sc*ts,16*sc*ts,30*sc*ts); }
+      else{ g.fillStyle=S.info.colMeta; g.fillRect(x+wM+6*sc,yMeta-20*sc*ts,14*sc*ts,24*sc*ts); }
     }
   }
 
@@ -1140,7 +1143,7 @@ function infoText(f0,f1){
       'In Premiere: loop/duplicate that segment to fill the slide duration — first frame',
       'of the loop equals the frame after its last, so the seam is invisible.');
   }
-  if(S.info.on) L.push('',`info colors: title ${S.info.colTitle} · details ${S.info.colMeta} · strip ${S.info.colStrip} · border ${S.info.colBorder}`);
+  if(S.info.on) L.push('',`info colors: title ${S.info.colTitle} · details ${S.info.colMeta} · strip ${S.info.colStrip} · border ${S.info.colBorder}${S.info.textScale!==100?` · text ${S.info.textScale}%`:''}`);
   if(S.vu.on) L.push(`vu: ${S.vu.logo} logo · ${S.vu.style==='rise'?`rising fill${S.vu.parts?' (parts separate)':''}`:'side-to-side bars'} · tint ${S.vu.tintOn?S.vu.tint:'original'} · idle ${S.vu.minw}%`);
   L.push('',
     'ProRes 4444 with alpha:',
@@ -1657,6 +1660,7 @@ $('infoMode').addEventListener('change',e=>{
   if(!audioBuf){ epoch=performance.now(); curTime=0; }
 });
 $('titleDur').addEventListener('input',e=>{ S.info.titleDur=Math.max(0,parseFloat(e.target.value)||0); buildTimeline(); });
+bindRange('textScale',S.info,'textScale',v=>v+'%');
 $('rank').addEventListener('input',e=>S.info.rank=clamp(parseInt(e.target.value)||1,1,99));
 $('total').addEventListener('input',e=>S.info.total=clamp(parseInt(e.target.value)||1,1,99));
 $('stripOn').addEventListener('change',e=>S.info.stripOn=e.target.checked);
