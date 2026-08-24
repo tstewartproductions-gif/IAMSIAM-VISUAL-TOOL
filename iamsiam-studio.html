@@ -264,6 +264,8 @@
     <div class="row"><label for="peak">peak-hold ticks</label><input id="peak" type="checkbox" checked><span class="val"></span></div>
     <div class="row"><label for="peakDecay">peak fall</label><input id="peakDecay" type="range" min="0.1" max="3" step="0.1" value="1.9"><span class="val" id="peakDecayV">1.9/s</span></div>
     <div class="row"><label for="marginPct">logo margin</label><input id="marginPct" type="range" min="0" max="30" step="1" value="0"><span class="val" id="marginPctV">0%</span></div>
+    <div class="row"><label for="voff">logo v-offset</label><input id="voff" type="range" min="-30" max="30" step="1" value="0"><span class="val" id="voffV">0%</span></div>
+    <div class="hint">+ lifts the logo up (e.g. clear of the info text), − pushes it down</div>
     <div class="hint" id="logoInfo">–</div>
     </div>
   </fieldset>
@@ -2339,7 +2341,7 @@ const S={
     on:true, logo:'iamsiam', style:'bars', anchor:'right', react:'bands', flip:false,
     minw:0, gain:1.35, curve:2.2, attack:0, release:20,
     autoGain:true, peak:true, peakDecay:1.9, ghost:12, parts:false,
-    tint:'#ffffff', tintOn:true, margin:0,
+    tint:'#ffffff', tintOn:true, margin:0, voff:0,
   },
   info:{
     on:true, mode:'track',
@@ -2733,7 +2735,7 @@ function renderVU(g,W,H,tMs,peaks){
   const frame=env?clamp(Math.floor(tMs*S.out.fps/1000),0,framesTotal-1):-1;
   const m=S.vu.margin/100;
   const sc=Math.min(W*(1-2*m)/barData.w, H*(1-2*m)/barData.h);
-  const ox=(W-barData.w*sc)/2, oy=(H-barData.h*sc)/2;
+  const ox=(W-barData.w*sc)/2, oy=(H-barData.h*sc)/2-S.vu.voff/100*H;
   const minF=S.vu.minw/100;
   const dec=S.vu.peakDecay/S.out.fps;
   const mw=Math.max(3,barData.h*0.006);   // peak tick width in logo px
@@ -3067,7 +3069,7 @@ function infoText(f0,f1){
       'of the loop equals the frame after its last, so the seam is invisible.');
   }
   if(S.info.on) L.push('',`info colors: title ${S.info.colTitle} · details ${S.info.colMeta} · strip ${S.info.colStrip} · border ${S.info.colBorder}${S.info.textScale!==100?` · text ${S.info.textScale}%`:''}`);
-  if(S.vu.on) L.push(`vu: ${S.vu.logo} logo · ${S.vu.style==='rise'?`rising fill${S.vu.parts?' (parts separate)':''}`:'side-to-side bars'} · tint ${S.vu.tintOn?S.vu.tint:'original'} · idle ${S.vu.minw}%`);
+  if(S.vu.on) L.push(`vu: ${S.vu.logo} logo · ${S.vu.style==='rise'?`rising fill${S.vu.parts?' (parts separate)':''}`:'side-to-side bars'} · tint ${S.vu.tintOn?S.vu.tint:'original'} · idle ${S.vu.minw}%${S.vu.margin?` · margin ${S.vu.margin}%`:''}${S.vu.voff?` · v-offset ${S.vu.voff>0?'+':''}${S.vu.voff}%`:''}`);
   L.push('',
     'ProRes 4444 with alpha:',
     `  ffmpeg -framerate ${S.out.fps} -i ${p}%05d.png -c:v prores_ks -profile:v 4444 -pix_fmt yuva444p10le ${p}alpha.mov`,
@@ -3491,6 +3493,7 @@ bindRange('attack',S.vu,'attack',v=>v+'ms',buildEnv);
 bindRange('release',S.vu,'release',v=>v+'ms',buildEnv);
 bindRange('peakDecay',S.vu,'peakDecay',v=>v.toFixed(1)+'/s');
 bindRange('marginPct',S.vu,'margin',v=>v+'%');
+bindRange('voff',S.vu,'voff',v=>(v>0?'+':'')+v+'%');
 bindRange('ghost',S.vu,'ghost',v=>v+'%');
 $('anchor').addEventListener('change',async e=>{
   S.vu.anchor=e.target.value;
