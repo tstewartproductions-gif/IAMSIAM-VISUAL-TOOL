@@ -300,6 +300,9 @@
     </div>
     <div class="row"><label for="textScale">text size</label><input id="textScale" type="range" min="50" max="150" step="5" value="100"><span class="val" id="textScaleV">100%</span></div>
     <div class="hint" style="margin-bottom:8px">shrink to fit long titles — scales title + details, not the strip</div>
+    <div class="row"><label for="infoVoff">text v-offset</label><input id="infoVoff" type="range" min="-80" max="80" step="1" value="0"><span class="val" id="infoVoffV">0%</span></div>
+    <div class="row"><label for="infoHoff">text h-offset</label><input id="infoHoff" type="range" min="-50" max="50" step="1" value="0"><span class="val" id="infoHoffV">0%</span></div>
+    <div class="hint" style="margin-bottom:8px">moves title + details around the frame — the bottom strip stays put</div>
     <div class="row"><label for="stripOn">show strip</label><input id="stripOn" type="checkbox" checked><span class="val"></span></div>
     <div class="row"><label for="curator">curator</label></div>
     <input id="curator" type="text" value="scrufizzer" style="margin-bottom:8px">
@@ -2358,7 +2361,7 @@ const S={
     stripOn:true, curator:'scrufizzer', listTitle:'top 5 grime instrumentals of all time',
     introText:'INTRODUCING IAMSIAM LISTS : A WEEKLY COLLECTION OF MUSIC RECOMMENDATIONS, CURATED BY FRIENDS AND FAMILY',
     weekText:"THIS WEEK : SCRUFIZZER'S TOP 5 GRIME INSTRUMENTALS AND TOP 5 GRIME VERSES OF ALL TIME",
-    titleDur:0, textScale:100,
+    titleDur:0, textScale:100, voff:0, hoff:0,
     colTitle:'#ffffff', colMeta:'#8f8f88', colStrip:'#6b6b66', colBorder:'#2c2c2a',
   },
   out:{ W:1080, H:1350, fps:30, bgMode:'alpha', bgColor:'#000000', bgFit:'cover', prefix:'', tStart:0, tEnd:0 },
@@ -2842,6 +2845,13 @@ function renderInfo(g,W,H,tMs){
   let cursorVisible=true;
   if(st.done) cursorVisible=((tMs-TL.done)%1000)<500;   // ON phase first
 
+  /* position offset moves the typed block only (like text size); the strip
+     stays pinned to the frame. skipped entirely at 0/0 so defaults render
+     byte-identically */
+  const dx=S.info.hoff/100*W, dy=-S.info.voff/100*H;
+  const shifted=dx!==0||dy!==0;
+  if(shifted){ g.save(); g.translate(dx,dy); }
+
   if(S.info.mode==='title'){
     const maxW=W-2*x;
     const f1=`600 ${34*sc*ts}px ${FONT}`, f2=`400 ${25*sc*ts}px ${FONT}`;
@@ -2895,6 +2905,8 @@ function renderInfo(g,W,H,tMs){
       else{ g.fillStyle=S.info.colMeta; g.fillRect(x+wM+6*sc,yMeta-20*sc*ts,14*sc*ts,24*sc*ts); }
     }
   }
+
+  if(shifted) g.restore();
 
   if(S.info.stripOn){
     g.fillStyle=S.info.colBorder; g.fillRect(0,H-62*sc,W,2*sc);
@@ -3127,7 +3139,7 @@ function infoText(f0,f1){
       'In Premiere: loop/duplicate that segment to fill the slide duration — first frame',
       'of the loop equals the frame after its last, so the seam is invisible.');
   }
-  if(S.info.on) L.push('',`info colors: title ${S.info.colTitle} · details ${S.info.colMeta} · strip ${S.info.colStrip} · border ${S.info.colBorder}${S.info.textScale!==100?` · text ${S.info.textScale}%`:''}`);
+  if(S.info.on) L.push('',`info colors: title ${S.info.colTitle} · details ${S.info.colMeta} · strip ${S.info.colStrip} · border ${S.info.colBorder}${S.info.textScale!==100?` · text ${S.info.textScale}%`:''}${S.info.voff?` · text v-offset ${S.info.voff>0?'+':''}${S.info.voff}%`:''}${S.info.hoff?` · text h-offset ${S.info.hoff>0?'+':''}${S.info.hoff}%`:''}`);
   if(S.vu.on) L.push(`vu: ${S.vu.logo} logo · ${S.vu.style==='rise'?`rising fill${S.vu.parts?' (parts separate)':''}`:'side-to-side bars'} · tint ${S.vu.tintOn?S.vu.tint:'original'} · idle ${S.vu.minw}%${S.vu.margin?` · margin ${S.vu.margin}%`:''}${S.vu.voff?` · v-offset ${S.vu.voff>0?'+':''}${S.vu.voff}%`:''}`);
   L.push('',
     'ProRes 4444 with alpha:',
@@ -3611,6 +3623,8 @@ $('infoMode').addEventListener('change',e=>{
 });
 $('titleDur').addEventListener('input',e=>{ S.info.titleDur=Math.max(0,parseFloat(e.target.value)||0); buildTimeline(); });
 bindRange('textScale',S.info,'textScale',v=>v+'%');
+bindRange('infoVoff',S.info,'voff',v=>(v>0?'+':'')+v+'%');
+bindRange('infoHoff',S.info,'hoff',v=>(v>0?'+':'')+v+'%');
 $('rank').addEventListener('input',e=>S.info.rank=clamp(parseInt(e.target.value)||1,1,99));
 $('total').addEventListener('input',e=>S.info.total=clamp(parseInt(e.target.value)||1,1,99));
 $('stripOn').addEventListener('change',e=>S.info.stripOn=e.target.checked);
