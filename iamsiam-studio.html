@@ -320,12 +320,20 @@
         <option value="alpha" selected>transparent</option>
         <option value="color">solid color</option>
         <option value="image">image</option>
+        <option value="video">video</option>
       </select>
     </div>
     <div class="row" id="bgColorRow" style="display:none"><label for="bgColor">color</label><input id="bgColor" type="color" value="#000000"></div>
     <div class="row" id="bgImgRow" style="display:none">
       <label class="btn filebtn" style="flex:1;text-align:center">LOAD IMAGE<input id="bgFile" type="file" accept="image/*"></label>
       <button id="bgClear" class="btn">CLEAR</button>
+    </div>
+    <div class="row" id="bgVideoRow" style="display:none">
+      <label class="btn filebtn" style="flex:1;text-align:center">LOAD VIDEO<input id="bgVideoFile" type="file" accept="video/*,.mov,.mp4,.webm"></label>
+      <button id="bgVideoClear" class="btn">CLEAR</button>
+    </div>
+    <div class="row" id="bgVideoAudioRow" style="display:none">
+      <button id="bgVideoAudio" class="btn" style="flex:1">USE VIDEO'S AUDIO FOR VU</button>
     </div>
     <div class="row" id="bgFitRow" style="display:none"><label for="bgFit">fit</label>
       <select id="bgFit" style="width:130px">
@@ -2364,6 +2372,7 @@ function alphaHex(hex,a){
 /* ---------------- global state ---------------- */
 let logoCanvas=null, tintedLogo=null, barData=null;
 let bgImg=null, bgImgName='';
+let bgVideo=null, bgVideoName='', bgVideoFile=null, bgVideoURL=null;
 let audioBuf=null, audioFileName='', monoData=null;
 let analysis=null, env=null, envAll=null, framesTotal=0;
 let previewPeaks=null;
@@ -2932,17 +2941,65 @@ function typedLines(lines,n){
 function infoOffsetMs(){
   return audioBuf?Math.floor((S.out.tStart||0)*S.out.fps)*1000/S.out.fps:0;
 }
-/* background: solid color, fitted image, or nothing (straight alpha).
-   image mode with no file loaded falls back to transparent */
+/* background: solid color, fitted image, fitted video frame, or nothing
+   (straight alpha). image/video mode with no file loaded falls back to
+   transparent. the video element's current frame is what gets drawn — the
+   preview loop keeps it in sync with the clock, and exports seek it
+   frame-by-frame (seekBg) before rendering, so output stays deterministic */
+function drawFitted(g,src,iw,ih,W,H){
+  if(S.out.bgFit==='stretch'){ g.drawImage(src,0,0,W,H); return; }
+  const sc=S.out.bgFit==='cover'?Math.max(W/iw,H/ih):Math.min(W/iw,H/ih);
+  const dw=iw*sc, dh=ih*sc;
+  g.drawImage(src,(W-dw)/2,(H-dh)/2,dw,dh);
+}
 function drawBackground(g,W,H){
   if(S.out.bgMode==='color'){ g.fillStyle=S.out.bgColor; g.fillRect(0,0,W,H); return; }
-  if(S.out.bgMode==='image'&&bgImg){
-    const iw=bgImg.naturalWidth, ih=bgImg.naturalHeight;
-    if(S.out.bgFit==='stretch'){ g.drawImage(bgImg,0,0,W,H); return; }
-    const sc=S.out.bgFit==='cover'?Math.max(W/iw,H/ih):Math.min(W/iw,H/ih);
-    const dw=iw*sc, dh=ih*sc;
-    g.drawImage(bgImg,(W-dw)/2,(H-dh)/2,dw,dh);
+  if(S.out.bgMode==='image'&&bgImg){ drawFitted(g,bgImg,bgImg.naturalWidth,bgImg.naturalHeight,W,H); return; }
+  if(S.out.bgMode==='video'&&bgVideo&&bgVideo.readyState>=2)
+    drawFitted(g,bgVideo,bgVideo.videoWidth,bgVideo.videoHeight,W,H);
+}
+
+/* bg video position for a timeline moment — the video loops if shorter
+   than the audio/timeline */
+function bgVideoTime(tSec){
+  const d=bgVideo.duration;
+  if(!isFinite(d)||d<=0) return 0;
+  const t=tSec%d;
+  /* +1ms bias: container timestamps are rounded (webm stores whole ms), so a
+     seek to an exact frame boundary can land one frame early without it */
+  return Math.min(t+0.001,Math.max(0,d-0.001));
+}
+/* preview: let the element play alongside the transport (cheap, smooth),
+   nudging it back in sync if it drifts; paused/scrubbing → throttled seek */
+function syncBgVideo(){
+  if(!bgVideo||S.out.bgMode!=='video'){
+    if(bgVideo&&!bgVideo.paused) bgVideo.pause();
+    return;
   }
+  if(!isFinite(bgVideo.duration)||bgVideo.duration<=0) return;
+  const t=bgVideoTime(curTime);
+  if(playing){
+    if(bgVideo.paused) bgVideo.play().catch(()=>{});
+    if(Math.abs(bgVideo.currentTime-t)>0.25&&!bgVideo.seeking) bgVideo.currentTime=t;
+  }else{
+    if(!bgVideo.paused) bgVideo.pause();
+    if(!bgVideo.seeking&&Math.abs(bgVideo.currentTime-t)>0.05) bgVideo.currentTime=t;
+  }
+}
+/* export: seek the bg video to the exact frame time and wait for the frame
+   to be decodable. no-op without a video bg, so other paths are untouched */
+function seekBg(tMs){
+  if(!bgVideo||S.out.bgMode!=='video') return Promise.resolve();
+  if(!isFinite(bgVideo.duration)||bgVideo.duration<=0) return Promise.resolve();
+  const t=bgVideoTime(tMs/1000);
+  if(!bgVideo.seeking&&Math.abs(bgVideo.currentTime-t)<0.001) return Promise.resolve();
+  return new Promise(res=>{
+    let to=0;
+    const fin=()=>{ clearTimeout(to); bgVideo.removeEventListener('seeked',fin); res(); };
+    to=setTimeout(fin,1000);   // never hang an export on a stuck seek
+    bgVideo.addEventListener('seeked',fin);
+    bgVideo.currentTime=t;
+  });
 }
 function renderFrame(g,W,H,tMs,peaks){
   g.clearRect(0,0,W,H);
@@ -2970,6 +3027,7 @@ function tick(now){
       curTime=((now-epoch)%previewDur())/1000;
       $('seek').value=curTime;
     }
+    syncBgVideo();
     renderFrame(vctx,view.width,view.height,curTime*1000,previewPeaks);
   }
   updateTimeLabel();
@@ -3052,6 +3110,7 @@ function infoText(f0,f1){
   }
   const bgDesc=S.out.bgMode==='color'?`${S.out.bgColor} background`
     :(S.out.bgMode==='image'&&bgImg)?`image bg: ${bgImgName} (${S.out.bgFit})`
+    :(S.out.bgMode==='video'&&bgVideo)?`video bg: ${bgVideoName} (${S.out.bgFit}, loops)`
     :'straight alpha';
   L.push(
     `frames: ${total} (${padF(0)}..${padF(total-1)})`,
@@ -3102,7 +3161,9 @@ async function runExport(writeFrame,done){
   const g=off.getContext('2d');
   try{
     if(S.info.on) await document.fonts.load(`600 36px ${FONT}`);
+    if(bgVideo) bgVideo.pause();
     for(let f=f0;f<f1;f++){
+      await seekBg(f*1000/S.out.fps);
       renderFrame(g,off.width,off.height,f*1000/S.out.fps,peaks);
       /* mirror to preview so you can watch it render */
       vctx.clearRect(0,0,view.width,view.height);
@@ -3174,7 +3235,14 @@ async function exportSingleFrame(){
   const off=document.createElement('canvas');
   off.width=S.out.W; off.height=S.out.H;
   if(S.info.on) await document.fonts.load(`600 36px ${FONT}`);
-  renderFrame(off.getContext('2d'),off.width,off.height,curTime*1000,null);
+  /* exporting flag keeps the preview loop from re-seeking the bg video
+     between our seek and the render */
+  exporting=true;
+  try{
+    if(bgVideo) bgVideo.pause();
+    await seekBg(curTime*1000);
+    renderFrame(off.getContext('2d'),off.width,off.height,curTime*1000,null);
+  }finally{ exporting=false; }
   const blob=await blobOf(off);
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
@@ -3191,7 +3259,7 @@ async function exportSingleFrame(){
    (sowt) when audio is loaded. No dependencies, no re-encode of audio.
    ========================================================================= */
 function effectiveBgOpaque(){
-  return S.out.bgMode==='color'||(S.out.bgMode==='image'&&!!bgImg);
+  return S.out.bgMode==='color'||(S.out.bgMode==='image'&&!!bgImg)||(S.out.bgMode==='video'&&!!bgVideo);
 }
 
 /* encode the export range's audio as AAC into the muxer.
@@ -3291,7 +3359,9 @@ async function exportVideoFile(){
   try{
     enc.configure(cfg);
     if(S.info.on) await document.fonts.load(`600 36px ${FONT}`);
+    if(bgVideo) bgVideo.pause();
     for(let f=f0;f<f1;f++){
+      await seekBg(f*1000/fps);
       renderFrame(g,off.width,off.height,f*1000/fps,peaks);
       vctx.clearRect(0,0,view.width,view.height);
       vctx.drawImage(off,0,0,view.width,view.height);
@@ -3564,11 +3634,15 @@ function updateBgUI(){
   $('bgMode').value=S.out.bgMode;
   $('bgColorRow').style.display=S.out.bgMode==='color'?'':'none';
   $('bgImgRow').style.display=S.out.bgMode==='image'?'':'none';
-  $('bgFitRow').style.display=(S.out.bgMode==='image'&&bgImg)?'':'none';
+  $('bgVideoRow').style.display=S.out.bgMode==='video'?'':'none';
+  $('bgVideoAudioRow').style.display=(S.out.bgMode==='video'&&bgVideo)?'':'none';
+  $('bgFitRow').style.display=((S.out.bgMode==='image'&&bgImg)||(S.out.bgMode==='video'&&bgVideo))?'':'none';
   $('bgInfo').textContent=
     S.out.bgMode==='color'?`solid ${S.out.bgColor} behind both layers`
     :S.out.bgMode==='image'?(bgImg?`${bgImgName} · ${bgImg.naturalWidth}×${bgImg.naturalHeight}px`
                                   :'no image loaded — output stays transparent')
+    :S.out.bgMode==='video'?(bgVideo?`${bgVideoName} · ${bgVideo.videoWidth}×${bgVideo.videoHeight}px · ${bgVideo.duration.toFixed(1)}s — loops if shorter than the timeline`
+                                    :'no video loaded — output stays transparent')
     :'no background — straight alpha, for layering over other artwork';
   updateExportUI(); updateFrameInfo();
 }
@@ -3591,6 +3665,44 @@ $('bgClear').addEventListener('click',()=>{
   bgImg=null; bgImgName='';
   S.out.bgMode='alpha';
   updateBgUI();
+});
+function loadBgVideo(file){
+  return new Promise((res,rej)=>{
+    const url=URL.createObjectURL(file);
+    const v=document.createElement('video');
+    v.muted=true; v.playsInline=true; v.loop=true; v.preload='auto';
+    v.onloadeddata=()=>res({v,url});
+    v.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error('could not load video — format not supported by this browser')); };
+    v.src=url;
+  });
+}
+function setBgVideo(f){
+  setStatus('loading video…');
+  return loadBgVideo(f).then(({v,url})=>{
+    if(bgVideoURL) URL.revokeObjectURL(bgVideoURL);
+    bgVideo=v; bgVideoName=f.name; bgVideoFile=f; bgVideoURL=url;
+    S.out.bgMode='video';
+    setStatus('');
+    updateBgUI();
+  }).catch(err=>setStatus(err.message));
+}
+$('bgVideoFile').addEventListener('change',e=>{
+  const f=e.target.files[0];
+  e.target.value='';   // so clearing then re-picking the same file still fires
+  if(f) setBgVideo(f);
+});
+$('bgVideoClear').addEventListener('click',()=>{
+  if(bgVideo){ try{bgVideo.pause();}catch(e){} }
+  if(bgVideoURL) URL.revokeObjectURL(bgVideoURL);
+  bgVideo=null; bgVideoName=''; bgVideoFile=null; bgVideoURL=null;
+  S.out.bgMode='alpha';
+  updateBgUI();
+});
+/* the same file drives both layers: decodeAudioData pulls the audio track
+   straight out of the video container and feeds the normal analysis path */
+$('bgVideoAudio').addEventListener('click',()=>{
+  if(!bgVideoFile) return;
+  loadAudio(bgVideoFile).catch(err=>setStatus('could not read an audio track from this video ('+err.message+')'));
 });
 $('fps').addEventListener('change',async e=>{
   S.out.fps=parseInt(e.target.value);
@@ -3661,6 +3773,8 @@ window.addEventListener('drop',e=>{
   if(!f) return;
   if(f.type.startsWith('audio')||/\.(mp3|wav|flac|ogg|m4a|aac|aiff?)$/i.test(f.name)){
     loadAudio(f).catch(err=>setStatus('audio load failed: '+err.message));
+  }else if(f.type.startsWith('video')||/\.(mp4|mov|webm|m4v)$/i.test(f.name)){
+    setBgVideo(f);
   }else if(f.type.startsWith('image')){
     const rd=new FileReader();
     rd.onload=()=>setLogo(rd.result).catch(err=>setStatus(err.message));
